@@ -34,6 +34,7 @@ name = "blockbuster-mm"
 version = "0.1.0"
 dependencies = [
  "json",
+ "serde",
  "tokio",
  "warp",
 ]
