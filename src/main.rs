@@ -1,19 +1,10 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
+use warp::{Filter};
 
-use serde::{Deserialize, Serialize};
-use warp::Filter;
+mod entity;
+mod payload;
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
-struct Player{
-    name : String,
-}
-
-struct ID
-{
-
-}
-
-type Players = HashMap<String, Player>;
+type Players = HashMap<uuid::Uuid, entity::Player>;
 
 #[derive(Clone)]
 struct PlayerTable
@@ -29,15 +20,23 @@ impl PlayerTable {
     }
 }
 
-async fn login(player : Player, player_table : PlayerTable) -> Result<impl warp::Reply, warp::Rejection>{
-    let mut guard = player_table.players.lock().expect("Error while locking player_table");
-    guard.insert(player.name.clone(), player);
+async fn login(player : payload::request::Login, player_table : PlayerTable) -> Result<impl warp::Reply, warp::Rejection>{
+    
+    let player_uuid : uuid::Uuid = uuid::Uuid::new_v4();
+    let player_id = player_uuid.to_string().to_uppercase();
+    let len = player_id.len();
+    let id_chars = &player_id[len-4..];
 
-    let msg = format!("Login was succesful. {} players are logged", guard.len());
-    Ok(warp::reply::with_status(msg, warp::http::StatusCode::OK))
+    let username = player.username + "#" + id_chars;
+    let player = entity::Player::new(username.clone());
+    let mut guard = player_table.players.lock().expect("Error while locking player_table");
+    guard.insert(player_uuid, player);
+
+    let response = payload::response::Login{username};
+    Ok(warp::reply::json(&response))
 }
 
-fn json_body() -> impl Filter<Extract = (Player,), Error = warp::Rejection> + Clone {
+fn json_body() -> impl Filter<Extract = (payload::request::Login,), Error = warp::Rejection> + Clone {
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
 }
 
