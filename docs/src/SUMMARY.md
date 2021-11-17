@@ -2,6 +2,8 @@
 
 - [Introduction](./Introduction.md)
 - [Architecture](./Architecture.md)
+    - [Entities](./Entities.md)
+    - [Interoperation](./Interoperation.md)
 - [Endpoints](./Endpoints.md)
     - [Login](./Login.md)
     - [ListGames](./ListGames.md)
