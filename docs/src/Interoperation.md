@@ -17,4 +17,4 @@ When the host sends a StartGame request, the match-making server orders the game
 
 To be defined.
 
-Will need NAT punch hole
+Will need NAT punch hole.
