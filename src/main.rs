@@ -26,7 +26,7 @@ async fn main() {
     let list_games = warp::post()
     .and(warp::path("list_games"))
     .and(warp::path::end())
-    .and(warp::body::content_length_limit(1024 * 16).and(warp::body::json::<matchmaking::payload::request::ListGames>()))
+    .and(warp::body::content_length_limit(1024 * 16).and(warp::body::json::<serde_json::Value>()))
     .and(list_filter.clone())
     .and_then(matchmaking::endpoints::list_games);
 
@@ -35,7 +35,8 @@ async fn main() {
     let create_games = warp::post()
     .and(warp::path("create_game"))
     .and(warp::path::end())
-    .and(warp::body::content_length_limit(1024 * 16).and(warp::body::json::<matchmaking::payload::request::CreateGame>()))
+    .and(warp::body::content_length_limit(1024 * 16))
+    .and(warp::body::json::<matchmaking::payload::request::CreateGame>())
     .and(create_game_filter.clone())
     .and_then(matchmaking::endpoints::create_game);
 

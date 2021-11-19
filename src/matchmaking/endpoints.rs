@@ -19,7 +19,7 @@ pub async fn login(player : payload::request::Login, player_table : entity::Play
     Ok(warp::reply::json(&response))
 }
 
-pub async fn list_games(_game_filter : payload::request::ListGames, game_table : entity::GameTable) 
+pub async fn list_games(_game_filter : serde_json::Value, game_table : entity::GameTable) 
     -> Result<impl warp::Reply, warp::Rejection>{
     
     let games = game_table.get_all();
