@@ -27,3 +27,12 @@ pub async fn list_games(_game_filter : payload::request::ListGames, game_table :
     let response = payload::response::ListGames{games};
     Ok(warp::reply::json(&response))
 }
+
+pub async fn create_game(create_game_req : payload::request::CreateGame, game_table : entity::GameTable)
+    -> Result<impl warp::Reply, warp::Rejection>
+{
+    let game = entity::Game::new(create_game_req.name);
+    game_table.insert(game.id.clone(), game);
+
+    Ok(warp::reply::with_status("", warp::http::StatusCode::OK))
+}

@@ -16,6 +16,12 @@ pub mod request
     {
         pub full : bool,
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct CreateGame
+    {
+        pub name : String,
+    }
 }
 
 pub mod response
