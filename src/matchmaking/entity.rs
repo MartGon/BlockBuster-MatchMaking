@@ -17,7 +17,7 @@ impl<T: Clone> Table<T>{
         }
     }
 
-    pub fn get(self, id : &uuid::Uuid) -> Option<T>{
+    pub fn get(&self, id : &uuid::Uuid) -> Option<T>{
         let map = self.lock();
         let val = map.get(id);
         if let Some(val) = val{
@@ -47,13 +47,15 @@ pub type PlayerTable = Table<Player>;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Player{
     pub name : String,
+    pub game_id : Option<uuid::Uuid>,
 }
 
 impl Player{
 
     pub fn new(name : String) -> Player{
         Player{
-            name
+            name,
+            game_id : None
         }
     }
 }

@@ -20,6 +20,7 @@ pub mod request
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct JoinGame
     {
+        pub player_id : uuid::Uuid,
         pub game_id : uuid::Uuid,
     }
 
@@ -39,6 +40,7 @@ pub mod response
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct Login
     {
+        pub id : uuid::Uuid,
         pub username : String,
     }
 

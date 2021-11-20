@@ -3,8 +3,13 @@
 
 pub mod handlers
 {
+    use std::convert::Infallible;
+
     use crate::matchmaking::payload;
     use crate::matchmaking::entity;
+
+    use warp::reply;
+    use warp::http::StatusCode;
 
     // /login
     pub async fn login(player : payload::request::Login, player_table : entity::PlayerTable) 
@@ -19,7 +24,7 @@ pub mod handlers
         let player = entity::Player::new(username.clone());
         player_table.insert(player_uuid, player);
 
-        let response = payload::response::Login{username};
+        let response = payload::response::Login{id : player_uuid, username};
         Ok(warp::reply::json(&response))
     }
 
@@ -30,6 +35,46 @@ pub mod handlers
 
         let response = payload::response::ListGames{games};
         Ok(warp::reply::json(&response))
+    }
+
+    pub async fn join_game(join_game_req : payload::request::JoinGame, game_table : entity::GameTable, player_table : entity::PlayerTable)
+        -> Result<impl warp::Reply, Infallible>
+    {
+        // Find game
+        if let Some(game) = game_table.get(&join_game_req.game_id)
+        {
+            // TODO: Check if the game is full
+
+            
+            // Find player
+            if let Some(mut player) = player_table.get(&join_game_req.player_id)
+            {
+                player.game_id = Some(game.id);
+                player_table.insert(join_game_req.player_id, player);
+
+                // Get in game players
+                let mut game_players = Vec::<entity::Player>::new();
+                for player in player_table.get_all().into_iter()
+                {
+                    if let Some(game_id) = player.game_id
+                    {
+                        if game_id == join_game_req.game_id
+                        {
+                            game_players.push(player);
+                        }
+                    }
+                }
+
+                let response = payload::response::JoinGame{id : join_game_req.game_id, name : game.name, players :  game_players};
+                return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
+            }
+
+            let err = format!("Could not find player with id {}", join_game_req.player_id.to_string());
+            return Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+        }
+
+        let err = format!("Could not find game with id {}", join_game_req.game_id.to_string());
+        Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
     pub async fn create_game(create_game_req : payload::request::CreateGame, game_table : entity::GameTable)
@@ -54,6 +99,7 @@ pub mod filters
         login(player_table.clone())
         .or(list_games(game_table.clone()))
         .or(create_game(game_table.clone()))
+        .or(join_game(game_table, player_table))
     }
 
     pub fn login(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -77,6 +123,18 @@ pub mod filters
         .and(warp::body::content_length_limit(1024 * 16).and(warp::body::json::<serde_json::Value>()))
         .and(filter.clone())
         .and_then(handlers::list_games)
+    }
+
+    pub fn join_game(game_table : Table::<Game>, player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || game_table.clone()).and(warp::any().map(move || player_table.clone()));
+
+        warp::post()
+        .and(warp::path("join_game"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 16).and(warp::body::json::<request::JoinGame>()))
+        .and(filter.clone())
+        .and_then(handlers::join_game)
     }
 
     pub fn create_game(game_table : Table::<Game>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
