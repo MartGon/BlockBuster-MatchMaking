@@ -18,7 +18,7 @@ impl<T: Clone> Table<T>{
     }
 
     pub fn get(self, id : &uuid::Uuid) -> Option<T>{
-        let map = &*self.lock();
+        let map = self.lock();
         let val = map.get(id);
         if let Some(val) = val{
             return Some(val.clone())
