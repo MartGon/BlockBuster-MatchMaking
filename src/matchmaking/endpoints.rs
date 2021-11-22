@@ -85,6 +85,22 @@ pub mod handlers
 
         Ok(warp::reply::with_status("", warp::http::StatusCode::OK))
     }
+
+    pub async fn leave_game(leave_game_req : payload::request::LeaveGame, player_table : entity::PlayerTable)
+        -> Result<impl warp::Reply, Infallible>
+    {
+        let player_id = leave_game_req.player_id;
+        if let Some(mut player) = player_table.get(&player_id)
+        {
+            player.game_id = None;
+            player_table.insert(player_id, player);
+
+            return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
+        }
+
+        let err = format!("Could not find player with id {}", player_id.to_string());
+        Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
 }
 
 pub mod filters
@@ -99,7 +115,8 @@ pub mod filters
         login(player_table.clone())
         .or(list_games(game_table.clone()))
         .or(create_game(game_table.clone()))
-        .or(join_game(game_table, player_table))
+        .or(join_game(game_table.clone(), player_table.clone()))
+        .or(leave_game(player_table.clone()))
     }
 
     pub fn login(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -140,12 +157,25 @@ pub mod filters
     pub fn create_game(game_table : Table::<Game>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || game_table.clone());
-         warp::post()
+        warp::post()
         .and(warp::path("create_game"))
         .and(warp::path::end())
         .and(warp::body::content_length_limit(1024 * 16))
         .and(warp::body::json::<request::CreateGame>())
         .and(filter.clone())
         .and_then(handlers::create_game)
+    }
+
+    pub fn leave_game(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || player_table.clone());
+        
+        warp::post()
+        .and(warp::path("leave_game"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::body::json::<request::LeaveGame>())
+        .and(filter.clone())
+        .and_then(handlers::leave_game)
     }
 }

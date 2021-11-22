@@ -29,6 +29,12 @@ pub mod request
     {
         pub name : String,
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct LeaveGame
+    {
+        pub player_id : uuid::Uuid,
+    }
 }
 
 pub mod response
