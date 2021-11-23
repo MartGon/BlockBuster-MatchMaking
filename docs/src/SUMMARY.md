@@ -13,3 +13,4 @@
     - [ToggleReady](./ToggleReady.md)
     - [StartGame](./StartGame.md)
     - [GameDetails](./GameDetails.md)
+    - [UpdateGame](./UpdateGame.md)

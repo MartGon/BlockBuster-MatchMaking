@@ -1,19 +1,18 @@
+# Update Game
 
-# Join Game
-
-The client requests to join a specific game by id. The server responds with the game details
+The client makes a request to receive updates on a specific game. Every time an event happens, such as a client joining the game or toggling its ready state, the client making the request is notified. The server responds with the game details. This call blocks the handling thread until an event occurs.
 
 ## Path
-```
-    /join_game
+
+```json
+    /update_game
 ```
 
 ## Request
 
 ```json
 {
-    "game_id": "A49950AA047C2292E989E368A97A3AAA",
-    "player_id" : "A49950AA047C2292E989E368A97A3AAA"
+    "game_id": "A49950AA047C2292E989E368A97A3AAA"
 }
 ```
 
