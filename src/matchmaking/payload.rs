@@ -35,6 +35,12 @@ pub mod request
     {
         pub player_id : uuid::Uuid,
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct ToggleReady
+    {
+        pub player_id : uuid::Uuid,
+    }
 }
 
 pub mod response

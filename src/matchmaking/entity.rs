@@ -48,6 +48,7 @@ pub type PlayerTable = Table<Player>;
 pub struct Player{
     pub name : String,
     pub game_id : Option<uuid::Uuid>,
+    pub ready : bool,
 }
 
 impl Player{
@@ -55,7 +56,8 @@ impl Player{
     pub fn new(name : String) -> Player{
         Player{
             name,
-            game_id : None
+            game_id : None,
+            ready : false
         }
     }
 }

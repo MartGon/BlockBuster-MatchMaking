@@ -101,6 +101,29 @@ pub mod handlers
         let err = format!("Could not find player with id {}", player_id.to_string());
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
+
+    pub async fn toggle_ready(toggle_ready_req : payload::request::ToggleReady, player_table : entity::PlayerTable)
+        -> Result<impl warp::Reply, Infallible>
+    {
+        let player_id = toggle_ready_req.player_id;
+        if let Some(mut player) = player_table.get(&player_id)
+        {
+            if let Some(_game_id)  = player.game_id
+            {
+                player.ready = !player.ready;
+                let response = serde_json::json!({"ready" : player.ready});
+                player_table.insert(player_id, player);
+                
+                return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
+            }
+            
+            let err = format!("Player was not in a game {}", player_id.to_string());
+            return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+        }
+
+        let err = format!("Could not find player with id {}", player_id.to_string());
+        Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
 }
 
 pub mod filters
@@ -117,6 +140,7 @@ pub mod filters
         .or(create_game(game_table.clone()))
         .or(join_game(game_table.clone(), player_table.clone()))
         .or(leave_game(player_table.clone()))
+        .or(toggle_ready(player_table.clone()))
     }
 
     pub fn login(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -177,5 +201,18 @@ pub mod filters
         .and(warp::body::json::<request::LeaveGame>())
         .and(filter.clone())
         .and_then(handlers::leave_game)
+    }
+
+    pub fn toggle_ready(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || player_table.clone());
+        
+        warp::post()
+        .and(warp::path("toggle_ready"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::body::json::<request::ToggleReady>())
+        .and(filter.clone())
+        .and_then(handlers::toggle_ready)
     }
 }
