@@ -32,6 +32,11 @@ impl<T: Clone> Table<T>{
         self.lock().insert(id, entry);
     }
 
+    pub fn remove(&self, id : &uuid::Uuid)
+    {
+        self.lock().remove(id);
+    }
+
     pub fn get_all(&self) -> Vec<T>{
         let copy = self.lock().clone();
         copy.into_values().collect()
@@ -47,8 +52,7 @@ pub type PlayerTable = Table<Player>;
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Player{
     pub name : String,
-    pub game_id : Option<uuid::Uuid>,
-    pub ready : bool,
+    pub ready : bool
 }
 
 impl Player{
@@ -56,7 +60,6 @@ impl Player{
     pub fn new(name : String) -> Player{
         Player{
             name,
-            game_id : None,
             ready : false
         }
     }
@@ -79,3 +82,24 @@ impl Game{
         }
     }
 }
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PlayerGame{
+    pub player_id : uuid::Uuid,
+    pub game_id : uuid::Uuid,
+    pub ready : bool
+}
+
+impl PlayerGame{
+
+    pub fn new(player_id : uuid::Uuid, game_id : uuid::Uuid) -> PlayerGame
+    {
+        PlayerGame{
+            player_id,
+            game_id,
+            ready : false,
+        }
+    }
+}
+
+pub type PlayerGameTable = Table<PlayerGame>;

@@ -37,7 +37,10 @@ pub mod handlers
         Ok(warp::reply::json(&response))
     }
 
-    pub async fn join_game(join_game_req : payload::request::JoinGame, game_table : entity::GameTable, player_table : entity::PlayerTable)
+    pub async fn join_game(join_game_req : payload::request::JoinGame, 
+        game_table : entity::GameTable, 
+        player_table : entity::PlayerTable, 
+        player_game_table : entity::PlayerGameTable)
         -> Result<impl warp::Reply, Infallible>
     {
         // Find game
@@ -47,21 +50,22 @@ pub mod handlers
 
             
             // Find player
-            if let Some(mut player) = player_table.get(&join_game_req.player_id)
+            if let Some(player) = player_table.get(&join_game_req.player_id)
             {
-                player.game_id = Some(game.id);
-                player_table.insert(join_game_req.player_id, player);
+                // Insert new entry
+                let player_game = entity::PlayerGame::new(join_game_req.player_id, join_game_req.game_id);
+                player_game_table.insert(join_game_req.player_id, player_game);
 
                 // Get in game players
                 let mut game_players = Vec::<entity::Player>::new();
-                for player in player_table.get_all().into_iter()
+                for entry in player_game_table.get_all().into_iter()
                 {
-                    if let Some(game_id) = player.game_id
+                    let game_id = entry.game_id;
+                    
+                    if game_id == join_game_req.game_id
                     {
-                        if game_id == join_game_req.game_id
-                        {
-                            game_players.push(player);
-                        }
+                        let player = player_table.get(&entry.player_id).expect("Could not find player in playertable");
+                        game_players.push(player);
                     }
                 }
 
@@ -86,29 +90,23 @@ pub mod handlers
         Ok(warp::reply::with_status("", warp::http::StatusCode::OK))
     }
 
-    pub async fn leave_game(leave_game_req : payload::request::LeaveGame, player_table : entity::PlayerTable)
+    pub async fn leave_game(leave_game_req : payload::request::LeaveGame, player_game_table : entity::PlayerGameTable)
         -> Result<impl warp::Reply, Infallible>
     {
         let player_id = leave_game_req.player_id;
-        if let Some(mut player) = player_table.get(&player_id)
-        {
-            player.game_id = None;
-            player_table.insert(player_id, player);
-
-            return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
-        }
-
-        let err = format!("Could not find player with id {}", player_id.to_string());
-        Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+        player_game_table.remove(&player_id);
+        Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK))
     }
 
-    pub async fn toggle_ready(toggle_ready_req : payload::request::ToggleReady, player_table : entity::PlayerTable)
+    pub async fn toggle_ready(toggle_ready_req : payload::request::ToggleReady, 
+        player_table : entity::PlayerTable,
+        player_game_table : entity::PlayerGameTable)
         -> Result<impl warp::Reply, Infallible>
     {
         let player_id = toggle_ready_req.player_id;
         if let Some(mut player) = player_table.get(&player_id)
         {
-            if let Some(_game_id)  = player.game_id
+            if let Some(_game_id)  = player_game_table.get(&player_id)
             {
                 player.ready = !player.ready;
                 let response = serde_json::json!({"ready" : player.ready});
@@ -133,14 +131,14 @@ pub mod filters
     use crate::matchmaking::payload::request;
     use crate::matchmaking::entity::*;
 
-    pub fn get_routes(player_table : Table::<Player>, game_table : Table::<Game>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    pub fn get_routes(player_table : PlayerTable, game_table : GameTable, player_game_table : PlayerGameTable) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         login(player_table.clone())
         .or(list_games(game_table.clone()))
         .or(create_game(game_table.clone()))
-        .or(join_game(game_table.clone(), player_table.clone()))
-        .or(leave_game(player_table.clone()))
-        .or(toggle_ready(player_table.clone()))
+        .or(join_game(game_table.clone(), player_table.clone(), player_game_table.clone()))
+        .or(leave_game(player_game_table.clone()))
+        .or(toggle_ready(player_table.clone(), player_game_table.clone()))
     }
 
     pub fn login(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -166,9 +164,12 @@ pub mod filters
         .and_then(handlers::list_games)
     }
 
-    pub fn join_game(game_table : Table::<Game>, player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    pub fn join_game(game_table : Table::<Game>, player_table : Table::<Player>, player_game_table : PlayerGameTable) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
-        let filter = warp::any().map(move || game_table.clone()).and(warp::any().map(move || player_table.clone()));
+        let filter = warp::any()
+        .map(move || game_table.clone())
+        .and(warp::any().map(move || player_table.clone())
+        .and(warp::any().map(move || player_game_table.clone())));
 
         warp::post()
         .and(warp::path("join_game"))
@@ -190,9 +191,10 @@ pub mod filters
         .and_then(handlers::create_game)
     }
 
-    pub fn leave_game(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    pub fn leave_game(player_game_table : PlayerGameTable) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
-        let filter = warp::any().map(move || player_table.clone());
+        let filter = warp::any()
+        .map(move || player_game_table.clone());
         
         warp::post()
         .and(warp::path("leave_game"))
@@ -203,9 +205,11 @@ pub mod filters
         .and_then(handlers::leave_game)
     }
 
-    pub fn toggle_ready(player_table : Table::<Player>) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    pub fn toggle_ready(player_table : Table::<Player>, player_game_table : PlayerGameTable) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
-        let filter = warp::any().map(move || player_table.clone());
+        let filter = warp::any()
+        .map(move || player_table.clone())
+        .and(warp::any().map(move || player_game_table.clone()));
         
         warp::post()
         .and(warp::path("toggle_ready"))
