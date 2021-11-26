@@ -14,3 +14,4 @@
     - [StartGame](./StartGame.md)
     - [GameDetails](./GameDetails.md)
     - [UpdateGame](./UpdateGame.md)
+    - [ConfigGame](./ConfigGame.md)
