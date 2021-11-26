@@ -32,9 +32,9 @@ impl<T: Clone> Table<T>{
         self.lock().insert(id, entry);
     }
 
-    pub fn remove(&self, id : &uuid::Uuid)
+    pub fn remove(&self, id : &uuid::Uuid) -> Option<T>
     {
-        self.lock().remove(id);
+        self.lock().remove(id)
     }
 
     pub fn get_all(&self) -> Vec<T>{
@@ -103,3 +103,21 @@ impl PlayerGame{
 }
 
 pub type PlayerGameTable = Table<PlayerGame>;
+
+#[derive(Debug, Clone)]
+pub struct GameSem{
+    pub game_id : uuid::Uuid,
+    pub sem : std::sync::Arc<std::sync::Condvar>,
+}
+
+impl GameSem{
+
+    pub fn new(game_id : uuid::Uuid) -> GameSem{
+        GameSem{
+            game_id,
+            sem : std::sync::Arc::new(std::sync::Condvar::new())
+        }
+    }
+}
+
+pub type GameSemTable = Table<GameSem>;

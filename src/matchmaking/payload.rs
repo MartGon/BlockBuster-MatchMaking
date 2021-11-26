@@ -41,6 +41,12 @@ pub mod request
     {
         pub player_id : uuid::Uuid,
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct UpdateGame
+    {
+        pub game_id : uuid::Uuid,
+    }
 }
 
 pub mod response
@@ -62,7 +68,7 @@ pub mod response
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
-    pub struct JoinGame
+    pub struct GameDetails
     {
         pub id : uuid::Uuid,
         pub name : String,
