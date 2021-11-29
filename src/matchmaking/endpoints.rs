@@ -37,6 +37,18 @@ pub mod handlers
         Ok(warp::reply::json(&response))
     }
 
+    pub async fn create_game(create_game_req : payload::request::CreateGame, db : database::DB)
+    -> Result<impl warp::Reply, warp::Rejection>
+    {
+        let game = entity::Game::new(create_game_req.name);
+        db.game_table.insert(game.id.clone(), game.clone());
+
+        let game_sem = entity::GameSem::new(game.id);
+        db.game_sem_table.insert(game.id, game_sem);
+
+        Ok(warp::reply::with_status("", warp::http::StatusCode::OK))
+    }
+
     pub async fn join_game(join_game_req : payload::request::JoinGame, db : database::DB)
         -> Result<impl warp::Reply, Infallible>
     {
@@ -53,6 +65,9 @@ pub mod handlers
                 let player_game = entity::PlayerGame::new(join_game_req.player_id, join_game_req.game_id);
                 db.player_game_table.insert(join_game_req.player_id, player_game);
 
+                // Notify
+                notify_game_update(&db, &join_game_req.game_id);
+
                 // Send response
                 let response = get_game_details(db, game);
                 return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
@@ -66,18 +81,6 @@ pub mod handlers
         Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
-    pub async fn create_game(create_game_req : payload::request::CreateGame, db : database::DB)
-        -> Result<impl warp::Reply, warp::Rejection>
-    {
-        let game = entity::Game::new(create_game_req.name);
-        db.game_table.insert(game.id.clone(), game.clone());
-
-        let game_sem = entity::GameSem::new(game.id);
-        db.game_sem_table.insert(game.id, game_sem);
-
-        Ok(warp::reply::with_status("", warp::http::StatusCode::OK))
-    }
-
     pub async fn leave_game(leave_game_req : payload::request::LeaveGame, db : database::DB)
         -> Result<impl warp::Reply, Infallible>
     {
@@ -85,10 +88,11 @@ pub mod handlers
         
         if let Some(entry)  = db.player_game_table.remove(&player_id)
         {
-            if let Some(game_sem) = db.game_sem_table.get(&entry.game_id)
-            {
-                game_sem.sem.notify_all();
-            }
+            notify_game_update(&db, &entry.game_id);
+
+            // TODO: Set ready state to false
+
+            // TODO: Check if this is the last player. Remove game in that case
         }
 
         Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK))
@@ -100,11 +104,13 @@ pub mod handlers
         let player_id = toggle_ready_req.player_id;
         if let Some(mut player) = db.player_table.get(&player_id)
         {
-            if let Some(_game_id)  = db.player_game_table.get(&player_id)
+            if let Some(player_game)  = db.player_game_table.get(&player_id)
             {
                 player.ready = !player.ready;
                 let response = serde_json::json!({"ready" : player.ready});
                 db.player_table.insert(player_id, player);
+
+                notify_game_update(&db, &player_game.game_id);
                 
                 return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
             }
@@ -133,6 +139,18 @@ pub mod handlers
 
         let err = format!("Could not find game with id {}", game_id.to_string());
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
+
+    fn notify_game_update(db : &database::DB, game_id : &uuid::Uuid) -> bool
+    {
+        let mut notified = false;
+        if let Some(game_sem) = db.game_sem_table.get(&game_id)
+        {
+            game_sem.sem.notify_all();
+            notified = true;
+        }
+
+        return notified;
     }
 
     fn get_game_details(db : database::DB, game : entity::Game) -> payload::response::GameDetails

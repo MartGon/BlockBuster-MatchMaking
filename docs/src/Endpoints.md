@@ -4,8 +4,8 @@ In this section, we'll discuss the different endpoints available to interacti wi
 
 - [Login](./Login.md)
 - [ListGames](./ListGames.md)
-- [JoinGame](./JoinGame.md)
 - [CreateGame](./CreateGame.md)
+- [JoinGame](./JoinGame.md)
 - [LeaveGame](./LeaveGame.md)
 - [ToggleReady](./ToggleReady.md)
 - [StartGame](./StartGame.md)
