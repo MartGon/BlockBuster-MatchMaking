@@ -33,14 +33,31 @@ pub mod handlers
         
         let games = db.game_table.get_all();
 
-        let response = payload::response::ListGames{games};
+        let mut game_info_list = Vec::new();
+        for game in games.into_iter()
+        {
+            let players = get_game_players(&db, &game);
+            let player_amount = players.len() as u8;
+            let ping = 56;
+            let game_info = payload::response::GameInfo{
+                id : game.id,
+                name : game.name, 
+                map : game.map, 
+                mode : game.mode, 
+                max_players : game.max_players, 
+                players : player_amount, ping
+            };
+            game_info_list.push(game_info);
+        }
+
+        let response = payload::response::ListGames{games : game_info_list};
         Ok(warp::reply::json(&response))
     }
 
-    pub async fn create_game(create_game_req : payload::request::CreateGame, db : database::DB)
+    pub async fn create_game(cg_req : payload::request::CreateGame, db : database::DB)
     -> Result<impl warp::Reply, warp::Rejection>
     {
-        let game = entity::Game::new(create_game_req.name);
+        let game = entity::Game::new(cg_req.name, cg_req.map, cg_req.mode, cg_req.max_players);
         db.game_table.insert(game.id.clone(), game.clone());
 
         let game_sem = entity::GameSem::new(game.id);
@@ -69,7 +86,7 @@ pub mod handlers
                 notify_game_update(&db, &join_game_req.game_id);
 
                 // Send response
-                let response = get_game_details(db, game);
+                let response = get_game_details(&db, game);
                 return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
             }
 
@@ -133,7 +150,7 @@ pub mod handlers
             let dummy_mutex = std::sync::Mutex::new(1);
             let _game_sem = game_sem.sem.wait(dummy_mutex.lock().unwrap()).unwrap();
 
-            let response = get_game_details(db, game);
+            let response = get_game_details(&db, game);
             return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
         }
 
@@ -153,9 +170,15 @@ pub mod handlers
         return notified;
     }
 
-    fn get_game_details(db : database::DB, game : entity::Game) -> payload::response::GameDetails
+    fn get_game_details(db : &database::DB, game : entity::Game) -> payload::response::GameDetails
     {
-        // Get in game players
+        let game_players = get_game_players(&db, &game);
+
+        payload::response::GameDetails{id : game.id, name : game.name, players :  game_players}
+    }
+
+    fn get_game_players(db : &database::DB, game : &entity::Game) -> Vec<entity::Player>
+    {
         let mut game_players = Vec::<entity::Player>::new();
         for entry in db.player_game_table.get_all().into_iter()
         {
@@ -168,7 +191,7 @@ pub mod handlers
             }
         }
 
-        payload::response::GameDetails{id : game.id, name : game.name, players :  game_players}
+        game_players
     }
 }
 

@@ -22,14 +22,20 @@ impl Player{
 pub struct Game{
     pub id : uuid::Uuid,
     pub name : String,
+    pub map : String,
+    pub mode : String,
+    pub max_players : u8,
 }
 
 impl Game{
     
-    pub fn new(name : String) -> Game{
+    pub fn new(name : String, map : String, mode : String, max_players : u8) -> Game{
         Game{
             id : uuid::Uuid::new_v4(),
-            name
+            name,
+            map,
+            mode,
+            max_players
         }
     }
 }
