@@ -56,7 +56,7 @@ pub mod response
 {
     use serde::{Deserialize, Serialize};
 
-    use crate::matchmaking::entity::Player;
+    use crate::matchmaking::entity::{Player};
     
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct Login
@@ -84,8 +84,7 @@ pub mod response
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct GameDetails
     {
-        pub id : uuid::Uuid,
-        pub name : String,
+        pub game_info : GameInfo,
         pub players : Vec<Player>,
     }
 }

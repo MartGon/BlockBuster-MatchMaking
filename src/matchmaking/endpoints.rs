@@ -36,17 +36,7 @@ pub mod handlers
         let mut game_info_list = Vec::new();
         for game in games.into_iter()
         {
-            let players = get_game_players(&db, &game);
-            let player_amount = players.len() as u8;
-            let ping = 56;
-            let game_info = payload::response::GameInfo{
-                id : game.id,
-                name : game.name, 
-                map : game.map, 
-                mode : game.mode, 
-                max_players : game.max_players, 
-                players : player_amount, ping
-            };
+            let game_info = get_game_info(&db, game);
             game_info_list.push(game_info);
         }
 
@@ -173,8 +163,24 @@ pub mod handlers
     fn get_game_details(db : &database::DB, game : entity::Game) -> payload::response::GameDetails
     {
         let game_players = get_game_players(&db, &game);
+        let game_info = get_game_info(db, game);
 
-        payload::response::GameDetails{id : game.id, name : game.name, players :  game_players}
+        payload::response::GameDetails{game_info, players :  game_players}
+    }
+
+    fn get_game_info(db : &database::DB, game : entity::Game) ->payload::response::GameInfo
+    {
+        let players = get_game_players(&db, &game);
+        let player_amount = players.len() as u8;
+        let ping = 56;
+        payload::response::GameInfo{
+            id : game.id,
+            name : game.name, 
+            map : game.map, 
+            mode : game.mode, 
+            max_players : game.max_players, 
+            players : player_amount, ping
+        }
     }
 
     fn get_game_players(db : &database::DB, game : &entity::Game) -> Vec<entity::Player>
