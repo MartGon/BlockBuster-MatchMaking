@@ -27,8 +27,9 @@ pub mod request
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct CreateGame
     {
+        pub player_id : uuid::Uuid,
         pub name : String,
-        pub map :String,
+        pub map : String,
         pub mode : String,
         pub max_players : u8,
     }
@@ -55,8 +56,6 @@ pub mod request
 pub mod response
 {
     use serde::{Deserialize, Serialize};
-
-    use crate::matchmaking::entity::{Player};
     
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct Login
@@ -82,9 +81,16 @@ pub mod response
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct PlayerInfo{
+        pub name : String,
+        pub ready : bool,
+        pub host : bool
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct GameDetails
     {
         pub game_info : GameInfo,
-        pub players : Vec<Player>,
+        pub players : Vec<PlayerInfo>,
     }
 }

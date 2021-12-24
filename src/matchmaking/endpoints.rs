@@ -36,7 +36,7 @@ pub mod handlers
         let mut game_info_list = Vec::new();
         for game in games.into_iter()
         {
-            let game_info = get_game_info(&db, game);
+            let game_info = get_game_info(&db, &game.id).unwrap();
             game_info_list.push(game_info);
         }
 
@@ -53,38 +53,35 @@ pub mod handlers
         let game_sem = entity::GameSem::new(game.id);
         db.game_sem_table.insert(game.id, game_sem);
 
-        Ok(warp::reply::with_status("", warp::http::StatusCode::OK))
+        join_game_as(&db, cg_req.player_id, game.id, true).unwrap();
+
+        // Send response
+        let response = get_game_details(&db, &game.id).unwrap();
+        return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
     }
 
     pub async fn join_game(join_game_req : payload::request::JoinGame, db : database::DB)
         -> Result<impl warp::Reply, Infallible>
     {
-        // Find game
-        if let Some(game) = db.game_table.get(&join_game_req.game_id)
+        let res = join_game_as(&db, join_game_req.player_id, join_game_req.game_id, false);
+        if let Ok(player_game) = res
         {
-            // TODO: Check if the game is full
+            // Notify
+            notify_game_update(&db, &player_game.game_id);
 
-            
-            // Find player
-            if let Some(_player) = db.player_table.get(&join_game_req.player_id)
-            {
-                // Insert new entry
-                let player_game = entity::PlayerGame::new(join_game_req.player_id, join_game_req.game_id);
-                db.player_game_table.insert(join_game_req.player_id, player_game);
-
-                // Notify
-                notify_game_update(&db, &join_game_req.game_id);
-
-                // Send response
-                let response = get_game_details(&db, game);
-                return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
-            }
-
-            let err = format!("Could not find player with id {}", join_game_req.player_id.to_string());
-            return Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+            // Send response
+            let response = get_game_details(&db, &join_game_req.game_id).unwrap();
+            return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
         }
 
-        let err = format!("Could not find game with id {}", join_game_req.game_id.to_string());
+        let mut err = format!("Could not find game with id {}", join_game_req.game_id.to_string());
+        match res {
+            Err(JoinGameError::GameFull) => err = format!("Game was full"),
+            Err(JoinGameError::GameNotFound) => err = format!("Could not find game with id {}", join_game_req.game_id.to_string()),
+            Err(JoinGameError::PlayerNotFound) => err = format!("Could not find player with id {}", join_game_req.player_id.to_string()),
+            _ => {}
+        }
+        
         Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
@@ -97,9 +94,9 @@ pub mod handlers
         {
             notify_game_update(&db, &entry.game_id);
 
-            // TODO: Set ready state to false
-
             // TODO: Check if this is the last player. Remove game in that case
+
+            // TODO: Check if hosts leaves, set another player as host
         }
 
         Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK))
@@ -109,25 +106,22 @@ pub mod handlers
         -> Result<impl warp::Reply, Infallible>
     {
         let player_id = toggle_ready_req.player_id;
-        if let Some(mut player) = db.player_table.get(&player_id)
+        if let Some(mut player_game)  = db.player_game_table.get(&player_id)
         {
-            if let Some(player_game)  = db.player_game_table.get(&player_id)
+            if let entity::PlayerType::Player(ready) = player_game.player_type
             {
-                player.ready = !player.ready;
-                let response = serde_json::json!({"ready" : player.ready});
-                db.player_table.insert(player_id, player);
-
+                player_game.player_type = entity::PlayerType::Player(!ready);
+                let response = serde_json::json!({"ready" : ready});
                 notify_game_update(&db, &player_game.game_id);
+
+                db.player_game_table.insert(player_id, player_game);
                 
                 return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
             }
-            
-            let err = format!("Player was not in a game {}", player_id.to_string());
-            return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
         }
-
-        let err = format!("Could not find player with id {}", player_id.to_string());
-        Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+            
+        let err = format!("Player was not in a game {}", player_id.to_string());
+        return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
     }
 
     pub async fn update_game(update_game_req : payload::request::UpdateGame, db : database::DB) -> Result<impl warp::Reply, Infallible>
@@ -140,12 +134,41 @@ pub mod handlers
             let dummy_mutex = std::sync::Mutex::new(1);
             let _game_sem = game_sem.sem.wait(dummy_mutex.lock().unwrap()).unwrap();
 
-            let response = get_game_details(&db, game);
+            let response = get_game_details(&db, &game.id).unwrap();
             return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
         }
 
         let err = format!("Could not find game with id {}", game_id.to_string());
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
+
+    #[derive(Debug)]
+    enum JoinGameError
+    {
+        GameFull,
+        PlayerNotFound,
+        GameNotFound,
+    }
+
+    fn join_game_as(db : &database::DB, player_id : uuid::Uuid, game_id : uuid::Uuid, host : bool) -> Result<entity::PlayerGame, JoinGameError>
+    {
+        if let Ok(full) = is_game_full(db, &game_id)
+        {
+            if !full {
+                // Find player
+                if let Some(_player) = db.player_table.get(&player_id)
+                {
+                    // Insert new entry
+                    let player_game = if host {entity::PlayerGame::new_player(player_id, game_id)} else {entity::PlayerGame::new_host(player_id, game_id)};
+                    db.player_game_table.insert(player_id, player_game.clone());
+
+                    return Ok(player_game);
+                }
+                return Err(JoinGameError::PlayerNotFound);
+            }
+            return Err(JoinGameError::GameFull);
+        }
+        Err(JoinGameError::GameNotFound)
     }
 
     fn notify_game_update(db : &database::DB, game_id : &uuid::Uuid) -> bool
@@ -160,40 +183,68 @@ pub mod handlers
         return notified;
     }
 
-    fn get_game_details(db : &database::DB, game : entity::Game) -> payload::response::GameDetails
+    fn get_game_details(db : &database::DB, game_id : &uuid::Uuid) -> Result<payload::response::GameDetails, QueryError>
     {
-        let game_players = get_game_players(&db, &game);
-        let game_info = get_game_info(db, game);
+        let game_players = get_game_players(&db, &game_id);
 
-        payload::response::GameDetails{game_info, players :  game_players}
-    }
-
-    fn get_game_info(db : &database::DB, game : entity::Game) ->payload::response::GameInfo
-    {
-        let players = get_game_players(&db, &game);
-        let player_amount = players.len() as u8;
-        let ping = 56;
-        payload::response::GameInfo{
-            id : game.id,
-            name : game.name, 
-            map : game.map, 
-            mode : game.mode, 
-            max_players : game.max_players, 
-            players : player_amount, ping
+        if let Ok(game_info) = get_game_info(db, &game_id){
+            return Ok(payload::response::GameDetails{game_info, players :  game_players})
         }
+
+        Err(QueryError::EntityNotFound)
     }
 
-    fn get_game_players(db : &database::DB, game : &entity::Game) -> Vec<entity::Player>
+    fn is_game_full(db : &database::DB, game_id : &uuid::Uuid) -> Result<bool, QueryError>
     {
-        let mut game_players = Vec::<entity::Player>::new();
+        let game_players = get_game_players(&db, &game_id);
+        if let Some(game) = db.game_table.get(game_id)
+        {
+            return Ok(game_players.len() as u8 >= game.max_players);
+        }
+
+        return Err(QueryError::EntityNotFound);
+    }
+
+    #[derive(Debug)]
+    enum QueryError
+    {
+        EntityNotFound
+    }
+
+    fn get_game_info(db : &database::DB, game_id : &uuid::Uuid) -> Result<payload::response::GameInfo, QueryError> 
+    {
+        if let Some(game) = db.game_table.get(game_id)
+        {
+            let players = get_game_players(&db, &game_id);
+            let player_amount = players.len() as u8;
+            let ping = 56;
+            return Ok(payload::response::GameInfo{
+                id : game.id,
+                name : game.name, 
+                map : game.map, 
+                mode : game.mode, 
+                max_players : game.max_players, 
+                players : player_amount, ping
+            })
+        }
+
+        Err(QueryError::EntityNotFound)
+    }
+
+    fn get_game_players(db : &database::DB, game_id : &uuid::Uuid) -> Vec<payload::response::PlayerInfo>
+    {
+        let mut game_players = Vec::new();
         for entry in db.player_game_table.get_all().into_iter()
         {
-            let game_id = entry.game_id;
+            let entry_game_id = entry.game_id;
             
-            if game_id == game.id
+            if *game_id == entry_game_id
             {
                 let player = db.player_table.get(&entry.player_id).expect("Could not find player in playertable");
-                game_players.push(player);
+                let ready = match entry.player_type {entity::PlayerType::Player(ready) => ready, _ => false};
+                let host = match entry.player_type{entity::PlayerType::Host => true, _ => false};
+                let player_info = payload::response::PlayerInfo{name : player.name, ready : ready, host : host};
+                game_players.push(player_info);
             }
         }
 
