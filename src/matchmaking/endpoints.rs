@@ -92,11 +92,16 @@ pub mod handlers
         
         if let Some(entry)  = db.player_game_table.remove(&player_id)
         {
+            if is_game_empty(&db, &entry.game_id)
+            {
+                db.game_table.remove(&entry.game_id);
+            }
+            else
+            {
+                // TODO: Check if hosts leaves, set another player as host    
+            }
+
             notify_game_update(&db, &entry.game_id);
-
-            // TODO: Check if this is the last player. Remove game in that case
-
-            // TODO: Check if hosts leaves, set another player as host
         }
 
         Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK))
@@ -131,8 +136,7 @@ pub mod handlers
         if let Some(game) = db.game_table.get(&game_id)
         {
             let game_sem = db.game_sem_table.get(&game_id).expect("Inconsistency: Game had no lock");
-            let dummy_mutex = std::sync::Mutex::new(1);
-            let _game_sem = game_sem.sem.wait(dummy_mutex.lock().unwrap()).unwrap();
+            let _game_sem = game_sem.sem.wait(game_sem.mutex.lock().unwrap());
 
             let response = get_game_details(&db, &game.id).unwrap();
             return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
@@ -203,6 +207,12 @@ pub mod handlers
         }
 
         return Err(QueryError::EntityNotFound);
+    }
+
+    fn is_game_empty(db : &database::DB, game_id : &uuid::Uuid) -> bool
+    {
+        let game_players = get_game_players(&db, &game_id);
+        return game_players.is_empty();
     }
 
     #[derive(Debug)]

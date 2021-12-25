@@ -76,6 +76,7 @@ impl PlayerGame{
 pub struct GameSem{
     pub game_id : uuid::Uuid,
     pub sem : std::sync::Arc<std::sync::Condvar>,
+    pub mutex : std::sync::Arc<std::sync::Mutex<i32>>,
 }
 
 impl GameSem{
@@ -83,7 +84,8 @@ impl GameSem{
     pub fn new(game_id : uuid::Uuid) -> GameSem{
         GameSem{
             game_id,
-            sem : std::sync::Arc::new(std::sync::Condvar::new())
+            sem : std::sync::Arc::new(std::sync::Condvar::new()),
+            mutex : std::sync::Arc::new(std::sync::Mutex::new(1)),
         }
     }
 }
