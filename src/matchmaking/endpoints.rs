@@ -123,6 +123,9 @@ pub mod handlers
                 
                 return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
             }
+            
+            let err = format!("Player was host. Cannot set ready {}", player_id.to_string());
+            return Ok(reply::with_status(reply::json(&err), StatusCode::BAD_REQUEST));
         }
             
         let err = format!("Player was not in a game {}", player_id.to_string());
@@ -139,6 +142,7 @@ pub mod handlers
             let _game_sem = game_sem.sem.wait(game_sem.mutex.lock().unwrap());
 
             let response = get_game_details(&db, &game.id).unwrap();
+            // TODO: Handle case where the game is removed after waiting for locks
             return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
         }
 
@@ -163,7 +167,7 @@ pub mod handlers
                 if let Some(_player) = db.player_table.get(&player_id)
                 {
                     // Insert new entry
-                    let player_game = if host {entity::PlayerGame::new_player(player_id, game_id)} else {entity::PlayerGame::new_host(player_id, game_id)};
+                    let player_game = if host {entity::PlayerGame::new_host(player_id, game_id)} else {entity::PlayerGame::new_player(player_id, game_id)};
                     db.player_game_table.insert(player_id, player_game.clone());
 
                     return Ok(player_game);
