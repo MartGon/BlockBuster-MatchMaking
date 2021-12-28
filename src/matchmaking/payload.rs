@@ -73,6 +73,7 @@ pub mod response
         pub max_players : u8,
         pub players : u8,
         pub ping : u16
+        // TODO: Add chat
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]

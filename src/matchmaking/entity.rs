@@ -4,13 +4,21 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Player{
+    pub id : uuid::Uuid,
     pub name : String
 }
 
 impl Player{
 
-    pub fn new(name : String) -> Player{
+    pub fn new(username : String) -> Player{
+        let id = uuid::Uuid::new_v4();
+        let player_id = id.to_string().to_uppercase();
+        let len = player_id.len();
+        let id_chars = &player_id[len-4..];
+
+        let name = username + "#" + id_chars;
         Player{
+            id,
             name,
         }
     }
@@ -23,6 +31,7 @@ pub struct Game{
     pub map : String,
     pub mode : String,
     pub max_players : u8,
+    // TODO: Add chat
 }
 
 impl Game{

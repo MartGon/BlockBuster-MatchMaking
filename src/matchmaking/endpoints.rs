@@ -3,7 +3,9 @@
 pub mod handlers
 {
     use std::convert::Infallible;
+    use std::time::Duration;
 
+    use crate::matchmaking::entity::PlayerType;
     use crate::matchmaking::payload;
     use crate::matchmaking::entity;
     use crate::matchmaking::database;
@@ -15,16 +17,11 @@ pub mod handlers
     pub async fn login(player : payload::request::Login, db : database::DB) 
         -> Result<impl warp::Reply, warp::Rejection>{
         
-        let player_uuid : uuid::Uuid = uuid::Uuid::new_v4();
-        let player_id = player_uuid.to_string().to_uppercase();
-        let len = player_id.len();
-        let id_chars = &player_id[len-4..];
+        let player = entity::Player::new(player.username.clone());
+        let player_copy = player.clone();
+        db.player_table.insert(player.id, player);
 
-        let username = player.username + "#" + id_chars;
-        let player = entity::Player::new(username.clone());
-        db.player_table.insert(player_uuid, player);
-
-        let response = payload::response::Login{id : player_uuid, username};
+        let response = payload::response::Login{id : player_copy.id, username : player_copy.name};
         Ok(warp::reply::json(&response))
     }
 
@@ -92,16 +89,21 @@ pub mod handlers
         
         if let Some(entry)  = db.player_game_table.remove(&player_id)
         {
-            if is_game_empty(&db, &entry.game_id)
+            let game_id = &entry.game_id;
+            let game_players = get_game_players(&db, game_id);
+            if game_players.is_empty()
             {
-                db.game_table.remove(&entry.game_id);
+                db.game_table.remove(game_id);
             }
             else
             {
-                // TODO: Check if hosts leaves, set another player as host    
+                let player = game_players.first().unwrap();
+                let mut new_host = db.player_game_table.get(&player.id).unwrap();
+                new_host.player_type = PlayerType::Host;
+                db.player_game_table.insert(player.id, new_host);
             }
 
-            notify_game_update(&db, &entry.game_id);
+            notify_game_update(&db, game_id);
         }
 
         Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK))
@@ -139,11 +141,12 @@ pub mod handlers
         if let Some(game) = db.game_table.get(&game_id)
         {
             let game_sem = db.game_sem_table.get(&game_id).expect("Inconsistency: Game had no lock");
-            let _game_sem = game_sem.sem.wait(game_sem.mutex.lock().unwrap());
+            let _game_sem = game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(15));
 
-            let response = get_game_details(&db, &game.id).unwrap();
-            // TODO: Handle case where the game is removed after waiting for locks
-            return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
+            if let Ok(response) = get_game_details(&db, &game.id)
+            {
+                return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
+            }
         }
 
         let err = format!("Could not find game with id {}", game_id.to_string());
@@ -193,7 +196,7 @@ pub mod handlers
 
     fn get_game_details(db : &database::DB, game_id : &uuid::Uuid) -> Result<payload::response::GameDetails, QueryError>
     {
-        let game_players = get_game_players(&db, &game_id);
+        let game_players = get_game_players_info(&db, &game_id);
 
         if let Ok(game_info) = get_game_info(db, &game_id){
             return Ok(payload::response::GameDetails{game_info, players :  game_players})
@@ -204,7 +207,7 @@ pub mod handlers
 
     fn is_game_full(db : &database::DB, game_id : &uuid::Uuid) -> Result<bool, QueryError>
     {
-        let game_players = get_game_players(&db, &game_id);
+        let game_players = get_game_players_info(&db, &game_id);
         if let Some(game) = db.game_table.get(game_id)
         {
             return Ok(game_players.len() as u8 >= game.max_players);
@@ -215,7 +218,7 @@ pub mod handlers
 
     fn is_game_empty(db : &database::DB, game_id : &uuid::Uuid) -> bool
     {
-        let game_players = get_game_players(&db, &game_id);
+        let game_players = get_game_players_info(&db, &game_id);
         return game_players.is_empty();
     }
 
@@ -229,7 +232,7 @@ pub mod handlers
     {
         if let Some(game) = db.game_table.get(game_id)
         {
-            let players = get_game_players(&db, &game_id);
+            let players = get_game_players_info(&db, &game_id);
             let player_amount = players.len() as u8;
             let ping = 56;
             return Ok(payload::response::GameInfo{
@@ -245,7 +248,24 @@ pub mod handlers
         Err(QueryError::EntityNotFound)
     }
 
-    fn get_game_players(db : &database::DB, game_id : &uuid::Uuid) -> Vec<payload::response::PlayerInfo>
+    fn get_game_players(db : &database::DB, game_id : &uuid::Uuid) -> Vec<entity::Player>
+    {
+        let mut game_players = Vec::new();
+        for entry in db.player_game_table.get_all().into_iter()
+        {
+            let entry_game_id = entry.game_id;
+            
+            if *game_id == entry_game_id
+            {
+                let player = db.player_table.get(&entry.player_id).expect("Could not find player in playertable");
+                game_players.push(player);
+            }
+        }
+
+        game_players
+    }
+
+    fn get_game_players_info(db : &database::DB, game_id : &uuid::Uuid) -> Vec<payload::response::PlayerInfo>
     {
         let mut game_players = Vec::new();
         for entry in db.player_game_table.get_all().into_iter()
