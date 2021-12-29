@@ -45,6 +45,13 @@ pub mod request
     {
         pub player_id : uuid::Uuid,
     }
+    
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct SendChatMsg
+    {
+        pub player_id : uuid::Uuid,
+        pub msg : String,
+    }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct UpdateGame
@@ -72,8 +79,8 @@ pub mod response
         pub mode : String,
         pub max_players : u8,
         pub players : u8,
-        pub ping : u16
-        // TODO: Add chat
+        pub ping : u16,
+        pub chat : Vec<String>,
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]

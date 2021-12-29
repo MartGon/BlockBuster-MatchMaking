@@ -31,7 +31,7 @@ pub struct Game{
     pub map : String,
     pub mode : String,
     pub max_players : u8,
-    // TODO: Add chat
+    pub chat : Vec<String>,
 }
 
 impl Game{
@@ -42,7 +42,9 @@ impl Game{
             name,
             map,
             mode,
-            max_players
+            max_players,
+            // TODO: Use a ring buffer instead
+            chat : Vec::new(),
         }
     }
 }

@@ -134,6 +134,30 @@ pub mod handlers
         return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
     }
 
+    pub async fn send_chat_msg(scm_req : payload::request::SendChatMsg, db : database::DB)
+    -> Result<impl warp::Reply, Infallible>
+    {
+        let player_id = scm_req.player_id;
+        if let Some(player_game)  = db.player_game_table.get(&player_id)
+        {
+            let mut game = db.game_table.get(&player_game.game_id).unwrap();
+            let player = db.player_table.get(&player_game.player_id).unwrap();
+            let game_id = game.id.clone();
+
+            let chat_msg = player.name + ": " + &scm_req.msg + "\n";
+            game.chat.push(chat_msg);
+            db.game_table.insert(game.id, game);
+
+            notify_game_update(&db, &game_id);
+            
+            return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
+        }
+            
+        let err = format!("Player was not in a game {}", player_id.to_string());
+        return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+    }
+
+
     pub async fn update_game(update_game_req : payload::request::UpdateGame, db : database::DB) -> Result<impl warp::Reply, Infallible>
     {
         let game_id = update_game_req.game_id;
@@ -241,7 +265,9 @@ pub mod handlers
                 map : game.map, 
                 mode : game.mode, 
                 max_players : game.max_players, 
-                players : player_amount, ping
+                players : player_amount, 
+                ping,
+                chat : game.chat
             })
         }
 
@@ -302,6 +328,7 @@ pub mod filters
         .or(join_game(db.clone()))
         .or(leave_game(db.clone()))
         .or(toggle_ready(db.clone()))
+        .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
     }
 
@@ -377,6 +404,19 @@ pub mod filters
         .and(warp::body::json::<request::ToggleReady>())
         .and(filter.clone())
         .and_then(handlers::toggle_ready)
+    }
+
+    pub fn send_chat_msg(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || db.clone());
+        
+        warp::post()
+        .and(warp::path("send_chat_msg"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::body::json::<request::SendChatMsg>())
+        .and(filter.clone())
+        .and_then(handlers::send_chat_msg)
     }
 
     pub fn update_game(db : database::DB)
