@@ -1,5 +1,6 @@
 
 
+use ringbuffer::AllocRingBuffer;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -24,14 +25,14 @@ impl Player{
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Clone)]
 pub struct Game{
     pub id : uuid::Uuid,
     pub name : String,
     pub map : String,
     pub mode : String,
     pub max_players : u8,
-    pub chat : Vec<String>,
+    pub chat : ringbuffer::AllocRingBuffer<String>,
 }
 
 impl Game{
@@ -44,7 +45,7 @@ impl Game{
             mode,
             max_players,
             // TODO: Use a ring buffer instead
-            chat : Vec::new(),
+            chat : AllocRingBuffer::with_capacity(16),
         }
     }
 }

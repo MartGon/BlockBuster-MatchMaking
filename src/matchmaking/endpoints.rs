@@ -10,6 +10,8 @@ pub mod handlers
     use crate::matchmaking::entity;
     use crate::matchmaking::database;
 
+    use ringbuffer::RingBufferExt;
+    use ringbuffer::RingBufferWrite;
     use warp::reply;
     use warp::http::StatusCode;
 
@@ -82,6 +84,7 @@ pub mod handlers
         Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
+    // TODO: Call this after a player is AFK for a long time.
     pub async fn leave_game(leave_game_req : payload::request::LeaveGame, db : database::DB)
         -> Result<impl warp::Reply, Infallible>
     {
@@ -267,7 +270,7 @@ pub mod handlers
                 max_players : game.max_players, 
                 players : player_amount, 
                 ping,
-                chat : game.chat
+                chat : game.chat.to_vec()
             })
         }
 
