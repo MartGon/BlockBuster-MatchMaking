@@ -57,12 +57,22 @@ pub mod request
     pub struct UpdateGame
     {
         pub game_id : uuid::Uuid,
+        // TODO: Add player id. Only players in game should be able to recv updates.
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct StartGame
+    {
+        pub game_id : uuid::Uuid,
+        pub player_id : uuid::Uuid
     }
 }
 
 pub mod response
 {
     use serde::{Deserialize, Serialize};
+
+    use crate::matchmaking::entity::GameState;
     
     #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct Login
@@ -81,6 +91,10 @@ pub mod response
         pub players : u8,
         pub ping : u16,
         pub chat : Vec<String>,
+
+        pub address : Option<String>,
+        pub port : Option<u16>,
+        pub state : GameState
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]

@@ -39,6 +39,7 @@ dependencies = [
 name = "blockbuster-mm"
 version = "0.1.0"
 dependencies = [
+ "rand 0.7.3",
  "ringbuffer",
  "serde",
  "serde_json",

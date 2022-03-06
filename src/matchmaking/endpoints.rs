@@ -4,12 +4,15 @@ pub mod handlers
 {
     use std::convert::Infallible;
     use std::time::Duration;
+    use std::process::Command;
 
+    use crate::matchmaking::entity::GameState;
     use crate::matchmaking::entity::PlayerType;
     use crate::matchmaking::payload;
     use crate::matchmaking::entity;
     use crate::matchmaking::database;
 
+    use rand::Rng;
     use ringbuffer::RingBufferExt;
     use ringbuffer::RingBufferWrite;
     use warp::reply;
@@ -160,7 +163,6 @@ pub mod handlers
         return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
     }
 
-
     pub async fn update_game(update_game_req : payload::request::UpdateGame, db : database::DB) -> Result<impl warp::Reply, Infallible>
     {
         let game_id = update_game_req.game_id;
@@ -178,6 +180,45 @@ pub mod handlers
 
         let err = format!("Could not find game with id {}", game_id.to_string());
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
+
+    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB) -> Result<impl warp::Reply, Infallible>
+    {
+        let game_id = start_game_req.game_id;
+
+        if let Some(mut game) = db.game_table.get(&game_id)
+        {
+            if let GameState::InLobby = game.state
+            {
+                let player_id = start_game_req.player_id;
+                if let Some(player_game) = db.player_game_table.get(&player_id)
+                {
+                    if let PlayerType::Host = player_game.player_type 
+                    {
+                        if let Ok((address, port)) = launch_game(&db, game_id)
+                        {
+                            game.port = Some(port);
+    
+                            game.address = Some(String::from(address));
+                            game.state = GameState::InGame;
+
+                            db.game_table.insert(game.id, game);
+                            notify_game_update(&db, &game_id);
+
+                            return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
+                        }
+                    }
+                    let err = format!("Player was not host");
+                    return Ok(reply::with_status(reply::json(&err), StatusCode::BAD_REQUEST));
+                }
+                let err = format!("Could not find player {} in game with id {}", player_id.to_string(), game_id.to_string());
+                return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+            }
+            let err = format!("Game was not in lobby");
+            return Ok(reply::with_status(reply::json(&err), StatusCode::BAD_REQUEST));
+        }
+        let err = format!("Could not find game with id {}", game_id.to_string());
+        return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
     }
 
     #[derive(Debug)]
@@ -207,6 +248,75 @@ pub mod handlers
             return Err(JoinGameError::GameFull);
         }
         Err(JoinGameError::GameNotFound)
+    }
+
+    enum LaunchServerError
+    {
+        ServerCrashed,
+        CouldNotlaunch,
+        GameNotFound
+    }
+
+    fn launch_game(db : &database::DB, game_id : uuid::Uuid) -> Result<(&str, u16), LaunchServerError>
+    {
+        if let Some(game) = db.game_table.get(&game_id)
+        {   
+            let game_info = get_game_info(db, &game_id).unwrap();
+            
+            // TODO: Here, we should select a domain/public ip
+            let address = "localhost";
+            let port = get_free_port(db);
+
+            let program = "/home/defu/Projects/BlockBuster/build/src/server/Server";
+            let map = "/home/defu/Projects/BlockBuster/resources/maps/Alpha2.bbm";
+            let gamemode = "Deathmatch";
+
+            let res = Command::new(program)
+                .arg("-a").arg(address)
+                .arg("-p").arg(port.to_string())
+                .arg("-m").arg(map)
+                .arg("-mp").arg(game.max_players.to_string())
+                .arg("-sp").arg(game_info.players.to_string())
+                .arg("-gm").arg(gamemode)
+                .spawn();
+
+            if let Err(_error) = res
+            {
+                return Err(LaunchServerError::CouldNotlaunch);
+            }
+
+            return Ok((address, port));
+        }
+
+        return Err(LaunchServerError::GameNotFound);
+    }
+
+    fn get_free_port(db : &database::DB) -> u16
+    {
+        let mut port = rand::thread_rng().gen_range(8000, 8400);
+
+        while is_port_in_use(db, port)
+        {
+            port = rand::thread_rng().gen_range(8000, 8400);
+        }
+
+        return port;
+    }
+
+    fn is_port_in_use(db : &database::DB, port : u16) -> bool
+    {
+        for entry in db.game_table.get_all().into_iter()
+        {
+            if let Some(entry_port) = entry.port
+            {
+                if entry_port == port
+                {
+                    return true;
+                }
+            } 
+        }
+
+        return false;
     }
 
     fn notify_game_update(db : &database::DB, game_id : &uuid::Uuid) -> bool
@@ -270,7 +380,11 @@ pub mod handlers
                 max_players : game.max_players, 
                 players : player_amount, 
                 ping,
-                chat : game.chat.to_vec()
+                chat : game.chat.to_vec(),
+
+                address : game.address,
+                port : game.port,
+                state : game.state
             })
         }
 
@@ -333,6 +447,7 @@ pub mod filters
         .or(toggle_ready(db.clone()))
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
+        .or(start_game(db.clone()))
     }
 
     pub fn login(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -434,5 +549,19 @@ pub mod filters
         .and(warp::body::json::<request::UpdateGame>())
         .and(filter.clone())
         .and_then(handlers::update_game)
+    }
+
+    pub fn start_game(db : database::DB)
+    -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || db.clone());
+
+        warp::post()
+        .and(warp::path("start_game"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::body::json::<request::StartGame>())
+        .and(filter.clone())
+        .and_then(handlers::start_game)
     }
 }

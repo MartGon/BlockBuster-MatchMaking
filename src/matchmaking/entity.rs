@@ -25,6 +25,12 @@ impl Player{
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum GameState{
+    InLobby,
+    InGame
+}
+
 #[derive(Debug, Clone)]
 pub struct Game{
     pub id : uuid::Uuid,
@@ -33,6 +39,10 @@ pub struct Game{
     pub mode : String,
     pub max_players : u8,
     pub chat : ringbuffer::AllocRingBuffer<String>,
+
+    pub state : GameState,
+    pub address : Option<String>,
+    pub port : Option<u16>,
 }
 
 impl Game{
@@ -44,8 +54,11 @@ impl Game{
             map,
             mode,
             max_players,
-            // TODO: Use a ring buffer instead
             chat : AllocRingBuffer::with_capacity(16),
+            
+            state : GameState::InLobby,
+            address : None,
+            port : None,            
         }
     }
 }
