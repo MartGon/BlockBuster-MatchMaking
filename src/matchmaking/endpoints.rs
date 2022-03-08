@@ -2,6 +2,7 @@
 
 pub mod handlers
 {
+    use std::path::Path;
     use std::convert::Infallible;
     use std::time::Duration;
     use std::process::Command;
@@ -182,7 +183,7 @@ pub mod handlers
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
-    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB) -> Result<impl warp::Reply, Infallible>
+    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String) -> Result<impl warp::Reply, Infallible>
     {
         let game_id = start_game_req.game_id;
 
@@ -195,7 +196,7 @@ pub mod handlers
                 {
                     if let PlayerType::Host = player_game.player_type 
                     {
-                        if let Ok((address, port)) = launch_game(&db, game_id)
+                        if let Ok((address, port)) = launch_game(&db, game_id, exec_path)
                         {
                             game.port = Some(port);
     
@@ -257,7 +258,7 @@ pub mod handlers
         GameNotFound
     }
 
-    fn launch_game(db : &database::DB, game_id : uuid::Uuid) -> Result<(&str, u16), LaunchServerError>
+    fn launch_game(db : & database::DB, game_id : uuid::Uuid, exec_path : String) -> Result<(& str, u16), LaunchServerError>
     {
         if let Some(game) = db.game_table.get(&game_id)
         {   
@@ -266,8 +267,9 @@ pub mod handlers
             // TODO: Here, we should select a domain/public ip
             let address = "localhost";
             let port = get_free_port(db);
-
-            let program = "/home/defu/Projects/BlockBuster/build/src/server/Server";
+            
+            //let program = "/home/defu/Projects/BlockBuster/build/src/server/Server";
+            let program = exec_path;
             let map = "/home/defu/Projects/BlockBuster/resources/maps/Alpha2.bbm";
             let gamemode = "Deathmatch";
 
@@ -293,11 +295,11 @@ pub mod handlers
 
     fn get_free_port(db : &database::DB) -> u16
     {
-        let mut port = rand::thread_rng().gen_range(8000, 8400);
+        let mut port = rand::thread_rng().gen_range(8000..8400);
 
         while is_port_in_use(db, port)
         {
-            port = rand::thread_rng().gen_range(8000, 8400);
+            port = rand::thread_rng().gen_range(8000..8400);
         }
 
         return port;
@@ -431,12 +433,14 @@ pub mod handlers
 
 pub mod filters
 {
+    use std::path::Path;
+
     use warp::Filter;
     use super::handlers;
     use crate::matchmaking::payload::request;
     use crate::matchmaking::database;
 
-    pub fn get_routes(db : database::DB) 
+    pub fn get_routes(db : database::DB, exec_path : String) 
         -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         login(db.clone())
@@ -447,7 +451,7 @@ pub mod filters
         .or(toggle_ready(db.clone()))
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
-        .or(start_game(db.clone()))
+        .or(start_game(db.clone(), exec_path))
     }
 
     pub fn login(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -551,10 +555,11 @@ pub mod filters
         .and_then(handlers::update_game)
     }
 
-    pub fn start_game(db : database::DB)
+    pub fn start_game(db : database::DB, exec_path : String)
     -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || db.clone());
+        let param2 = warp::any().map(move || exec_path.clone());
 
         warp::post()
         .and(warp::path("start_game"))
@@ -562,6 +567,7 @@ pub mod filters
         .and(warp::body::content_length_limit(1024 * 16))
         .and(warp::body::json::<request::StartGame>())
         .and(filter.clone())
+        .and(param2.clone())
         .and_then(handlers::start_game)
     }
 }
