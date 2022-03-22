@@ -129,7 +129,7 @@ pub mod response
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
-    pub struct Map
+    pub struct DownloadMap
     {
         pub map : String,
     }

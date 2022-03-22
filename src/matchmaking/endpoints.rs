@@ -17,6 +17,7 @@ pub mod handlers
     use crate::matchmaking::payload;
     use crate::matchmaking::entity;
     use crate::matchmaking::database;
+    use crate::matchmaking::payload::request::DownloadMap;
 
     use rand::Rng;
     use ringbuffer::RingBufferExt;
@@ -246,7 +247,9 @@ pub mod handlers
 
     pub async fn download_map(download_map_req : payload::request::DownloadMap, maps_folder : String) -> Result<impl warp::Reply, warp::Rejection>
     {
-        let map = download_map_req.map_name;
+        let map = download_map_req.map_name; // TODO: Check filename. Shouldn't contain slahes. can be a security issue
+        // TODO: Save zip file from clien when uploaded. Need to save some metadata somewhere. mapName.yml with supported game modes
+
         let map_file_name = map.clone() + ".zip";
         let maps_folder = Path::new(&maps_folder);
         let map_path = maps_folder.join(&map);
@@ -261,7 +264,14 @@ pub mod handlers
             let res = zip_dir(&mut it.filter_map(|e| e.ok()), map_path.to_str().unwrap(),
                  file, zip::CompressionMethod::Stored);
 
-            // TODO: Read file, base64 encode and write response
+            // Read file, encode and write response
+            let mut buffer = Vec::new();
+            let mut file = File::open(zip_path).unwrap();
+            file.read_to_end(&mut buffer).unwrap();
+            let output = base64::encode(buffer);
+
+            let response = payload::response::DownloadMap{map : output};
+            return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
         }
 
         let err = format!("Could not find map with name {}", map);
@@ -669,7 +679,7 @@ pub mod filters
         warp::post()
         .and(warp::path("download_map"))
         .and(warp::path::end())
-        .and(warp::body::content_length_limit(1024 * 64))
+        .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::body::json::<request::DownloadMap>())
         .and(filter.clone())
         .and_then(handlers::download_map)
