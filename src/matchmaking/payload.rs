@@ -115,4 +115,10 @@ pub mod response
         pub game_info : GameInfo,
         pub players : Vec<PlayerInfo>,
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct AvailableMaps
+    {
+        pub maps : Vec<String>,
+    }
 }

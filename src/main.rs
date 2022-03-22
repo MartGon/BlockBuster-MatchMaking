@@ -22,7 +22,11 @@ struct Args{
 
     // Server executable plath
     #[clap(short, long)]
-    server_path: String
+    server_path: String,
+
+    // Maps folder
+    #[clap(short, long, default_value = "./maps")]
+    maps_folder : String
 }
 
 
@@ -37,6 +41,14 @@ async fn main() {
         println!("Path to server exectuble is invalid: {}", args.server_path);
         std::process::exit(-1);
     }
+    let maps_folder = Path::new(&args.maps_folder);
+    if !maps_folder.exists() && !maps_folder.is_dir()
+    {
+        println!("Maps folder is invalid: {}", args.server_path);
+        std::process::exit(-1);
+    }
+    println!("Maps folder is: {}", args.maps_folder);
+
     let address = format!("{}:{}", args.address, args.port);
     let address = ToSocketAddrs::to_socket_addrs(&address).expect("Couldn't parse socket address").next().unwrap();
 
@@ -51,6 +63,6 @@ async fn main() {
     db.game_table.insert(sample_game.id.clone(), sample_game.clone());
     db.game_sem_table.insert(sample_game.id, game_sem);
     
-    let routes = endpoints::filters::get_routes(db, args.server_path);
+    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder);
     warp::serve(routes).run((address.ip(), args.port)).await;
 }

@@ -222,6 +222,22 @@ pub mod handlers
         return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
     }
 
+    pub async fn get_available_maps(maps_folder : String) -> Result<impl warp::Reply, warp::Rejection>
+    {
+        let maps : Vec<String>;
+        let maps_folder = Path::new(&maps_folder);
+        let paths = maps_folder.read_dir().unwrap();
+        maps = paths.into_iter()
+        .filter(|r| r.is_ok()) 
+        .map(|r| r.unwrap().path()) 
+        .filter(|r| r.is_dir()) 
+        .map(|r| r.file_name().unwrap().to_str().unwrap().to_string())
+        .collect();
+
+        let response = payload::response::AvailableMaps{maps};
+        Ok(warp::reply::json(&response))
+    }
+
     #[derive(Debug)]
     enum JoinGameError
     {
@@ -440,7 +456,7 @@ pub mod filters
     use crate::matchmaking::payload::request;
     use crate::matchmaking::database;
 
-    pub fn get_routes(db : database::DB, exec_path : String) 
+    pub fn get_routes(db : database::DB, exec_path : String, maps_folder : String) 
         -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         login(db.clone())
@@ -452,6 +468,7 @@ pub mod filters
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
         .or(start_game(db.clone(), exec_path))
+        .or(get_available_maps(maps_folder))
     }
 
     pub fn login(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -569,5 +586,17 @@ pub mod filters
         .and(filter.clone())
         .and(param2.clone())
         .and_then(handlers::start_game)
+    }
+
+    pub fn get_available_maps(maps_folder : String)
+    -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || maps_folder.clone());
+
+        warp::post()
+        .and(warp::path("get_available_maps"))
+        .and(warp::path::end())
+        .and(filter.clone())
+        .and_then(handlers::get_available_maps)
     }
 }
