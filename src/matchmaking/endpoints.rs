@@ -2,7 +2,12 @@
 
 pub mod handlers
 {
+    use std::fs::File;
+    use std::io::Read;
+    use std::io::Seek;
+    use std::io::Write;
     use std::path::Path;
+    use walkdir::{WalkDir, DirEntry};
     use std::convert::Infallible;
     use std::time::Duration;
     use std::process::Command;
@@ -18,6 +23,7 @@ pub mod handlers
     use ringbuffer::RingBufferWrite;
     use warp::reply;
     use warp::http::StatusCode;
+    use zip::write::FileOptions;
 
     // /login
     pub async fn login(player : payload::request::Login, db : database::DB) 
@@ -238,6 +244,62 @@ pub mod handlers
         Ok(warp::reply::json(&response))
     }
 
+    pub async fn download_map(download_map_req : payload::request::DownloadMap, maps_folder : String) -> Result<impl warp::Reply, warp::Rejection>
+    {
+        let map = download_map_req.map_name;
+        let map_file_name = map.clone() + ".zip";
+        let maps_folder = Path::new(&maps_folder);
+        let map_path = maps_folder.join(&map);
+        println!("Map path folder is {}", map_path.to_str().unwrap());
+
+        if map_path.exists() && map_path.is_dir()
+        {
+            let zip_path = maps_folder.join(map_file_name);
+            let file = File::create(&zip_path).unwrap();
+            let walkdir = WalkDir::new(map_path.to_str().unwrap());
+            let it = walkdir.into_iter();
+            let res = zip_dir(&mut it.filter_map(|e| e.ok()), map_path.to_str().unwrap(),
+                 file, zip::CompressionMethod::Stored);
+
+            // TODO: Read file, base64 encode and write response
+        }
+
+        let err = format!("Could not find map with name {}", map);
+        return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+    }
+
+    fn zip_dir<T>(it: &mut dyn Iterator<Item=DirEntry>, prefix: &str, writer: T, method: zip::CompressionMethod)
+              -> zip::result::ZipResult<()> where T: Write+Seek
+    {
+        let mut zip = zip::ZipWriter::new(writer);
+        let options = FileOptions::default()
+            .compression_method(method)
+            .unix_permissions(0o755);
+
+        
+        for entry in it {
+            let path = entry.path();
+            let name = path.strip_prefix(Path::new(prefix)).unwrap();
+
+            if path.is_file() {
+                zip.start_file(name.to_str().unwrap(), options)?;
+                let mut f = File::open(path)?;
+                
+                let mut buffer = Vec::new();
+                f.read_to_end(&mut buffer)?;
+                zip.write_all(&*buffer)?;
+
+                buffer.clear();
+            } else if name.as_os_str().len() != 0 {
+
+                zip.add_directory(name.to_str().unwrap(), options)?;
+            }
+        }
+
+        zip.finish()?;
+        Result::Ok(())
+    }
+
     #[derive(Debug)]
     enum JoinGameError
     {
@@ -449,8 +511,6 @@ pub mod handlers
 
 pub mod filters
 {
-    use std::path::Path;
-
     use warp::Filter;
     use super::handlers;
     use crate::matchmaking::payload::request;
@@ -468,7 +528,8 @@ pub mod filters
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
         .or(start_game(db.clone(), exec_path))
-        .or(get_available_maps(maps_folder))
+        .or(get_available_maps(maps_folder.clone()))
+        .or(download_map(maps_folder.clone()))
     }
 
     pub fn login(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -598,5 +659,19 @@ pub mod filters
         .and(warp::path::end())
         .and(filter.clone())
         .and_then(handlers::get_available_maps)
+    }
+
+    pub fn download_map(maps_folder : String)
+    -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || maps_folder.clone());
+
+        warp::post()
+        .and(warp::path("download_map"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 64))
+        .and(warp::body::json::<request::DownloadMap>())
+        .and(filter.clone())
+        .and_then(handlers::download_map)
     }
 }

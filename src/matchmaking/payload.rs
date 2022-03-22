@@ -66,6 +66,12 @@ pub mod request
         pub game_id : uuid::Uuid,
         pub player_id : uuid::Uuid
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct DownloadMap
+    {
+        pub map_name : String,
+    }
 }
 
 pub mod response
@@ -120,5 +126,11 @@ pub mod response
     pub struct AvailableMaps
     {
         pub maps : Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct Map
+    {
+        pub map : String,
     }
 }
