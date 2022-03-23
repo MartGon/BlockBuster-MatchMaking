@@ -72,6 +72,15 @@ pub mod request
     {
         pub map_name : String,
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct UploadMap
+    {
+        pub map_name : String,
+        pub map_zip : String,
+        pub password : String, // Used to update the map
+        pub supported_gamemodes : Vec<String>
+    }
 }
 
 pub mod response

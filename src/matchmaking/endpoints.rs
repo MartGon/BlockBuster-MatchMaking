@@ -8,6 +8,11 @@ pub mod handlers
     use std::io::Write;
     use std::path::Path;
     use walkdir::{WalkDir, DirEntry};
+    use yaml_rust::YamlEmitter;
+    use yaml_rust::YamlLoader;
+    use yaml_rust::emitter;
+    use yaml_rust::yaml::Hash;
+    use zip::ZipWriter;
     use std::convert::Infallible;
     use std::time::Duration;
     use std::process::Command;
@@ -247,8 +252,14 @@ pub mod handlers
 
     pub async fn download_map(download_map_req : payload::request::DownloadMap, maps_folder : String) -> Result<impl warp::Reply, warp::Rejection>
     {
-        let map = download_map_req.map_name; // TODO: Check filename. Shouldn't contain slahes. can be a security issue
-        // TODO: Save zip file from clien when uploaded. Need to save some metadata somewhere. mapName.yml with supported game modes
+        let map = download_map_req.map_name; 
+        
+        // Check filename. Shouldn't contain slahes. can be a security issue
+        if map.contains('/')
+        {
+            let err = format!("Illegal character in map name");
+            return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
+        }
 
         let map_file_name = map.clone() + ".zip";
         let maps_folder = Path::new(&maps_folder);
@@ -278,14 +289,117 @@ pub mod handlers
         return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
     }
 
+    pub async fn upload_map(upload_map_req : payload::request::UploadMap, maps_folder : String) -> Result<impl warp::Reply, warp::Rejection>
+    {
+        // Check filename. Shouldn't contain slahes. can be a security issue
+        let map = upload_map_req.map_name; 
+        if map.contains('/')
+        {
+            let err = format!("Illegal character in map name");
+            return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
+        }
+
+        // Check if it's an update
+        let map_filename = map.clone() + ".zip";
+        let maps_folder = Path::new(&maps_folder);
+        let map_folder = maps_folder.join(&map);
+
+        let yml_path = map_folder.join(map.clone() + ".yml");
+        if map_folder.exists() && map_folder.is_dir()
+        {
+            let mut yml_file = std::fs::File::open(&yml_path).unwrap();
+            let mut data_str = String::new();
+            yml_file.read_to_string(&mut data_str).unwrap();
+            let yml = &YamlLoader::load_from_str(&data_str).unwrap()[0];
+            let pass = yml["password"].as_str().unwrap();
+
+            if pass != upload_map_req.password
+            {
+                let err = format!("Password to update map {} was not correct", map);
+                return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
+            }
+        }
+
+        // Write map
+        let zip_path = maps_folder.join(map_filename);
+        println!("Zip file path is {}", zip_path.to_str().unwrap());
+        if let Ok(buffer) = base64::decode(upload_map_req.map_zip)
+        {
+            // Create dir
+            if !map_folder.exists()
+            {
+                std::fs::create_dir_all(&map_folder).unwrap();
+            }
+            
+            // Write zip file
+            {
+                let mut file = File::create(&zip_path).unwrap();
+                file.write_all(&buffer).unwrap();
+            }
+            
+            // Extract zip
+            let file = std::fs::File::open(&zip_path).unwrap();
+            zip_extract(file, maps_folder.to_str().unwrap().to_string());
+
+            // Create config file
+            let mut output = String::new();
+            let mut hash = Hash::new();
+            hash.insert(yaml_rust::Yaml::String("password".to_string()), yaml_rust::Yaml::String(upload_map_req.password));
+            let gamemodes = upload_map_req.supported_gamemodes.iter().map(|x| yaml_rust::Yaml::String(x.to_string())).collect();
+            hash.insert(yaml_rust::Yaml::String("gamemodes".to_string()), yaml_rust::Yaml::Array(gamemodes));
+            let mut emmiter = YamlEmitter::new(&mut output);
+            emmiter.dump(&yaml_rust::Yaml::Hash(hash)).unwrap();
+
+            {
+                let mut file = File::create(&yml_path).unwrap();
+                file.write(output.as_bytes()).unwrap();
+            }
+        }
+
+        let response = "Success";
+        return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
+    }
+
+    fn zip_extract(file : File, folder : String)
+    {
+        let folder = Path::new(folder.as_str());
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).unwrap();
+            let outpath = folder.join(file.mangled_name());
+    
+            if (&*file.name()).ends_with('/') {
+                //println!("File {} extracted to \"{}\"", i, outpath.as_path().display());
+                std::fs::create_dir_all(&outpath).unwrap();
+            } else {
+                //println!("File {} extracted to \"{}\" ({} bytes)", i, outpath.as_path().display(), file.size());
+                if let Some(p) = outpath.parent() {
+                    if !p.exists() {
+                        std::fs::create_dir_all(&p).unwrap();
+                    }
+                }
+                let mut outfile = std::fs::File::create(&outpath).unwrap();
+                std::io::copy(&mut file, &mut outfile).unwrap();
+            }
+    
+            // Get and Set permissions
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+    
+                if let Some(mode) = file.unix_mode() {
+                    std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode)).unwrap();
+                }
+            }
+        }
+    }
+
     fn zip_dir<T>(it: &mut dyn Iterator<Item=DirEntry>, prefix: &str, writer: T, method: zip::CompressionMethod)
               -> zip::result::ZipResult<()> where T: Write+Seek
     {
         let mut zip = zip::ZipWriter::new(writer);
-        let options = FileOptions::default()
-            .compression_method(method)
-            .unix_permissions(0o755);
-
+        let options = FileOptions::default().compression_method(method).unix_permissions(0o755);
         
         for entry in it {
             let path = entry.path();
@@ -338,7 +452,6 @@ pub mod handlers
         }
         Err(JoinGameError::GameNotFound)
     }
-
     enum LaunchServerError
     {
         ServerCrashed,
@@ -540,6 +653,7 @@ pub mod filters
         .or(start_game(db.clone(), exec_path))
         .or(get_available_maps(maps_folder.clone()))
         .or(download_map(maps_folder.clone()))
+        .or(upload_map(maps_folder.clone()))
     }
 
     pub fn login(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -683,5 +797,19 @@ pub mod filters
         .and(warp::body::json::<request::DownloadMap>())
         .and(filter.clone())
         .and_then(handlers::download_map)
+    }
+
+    pub fn upload_map(maps_folder : String)
+    -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || maps_folder.clone());
+
+        warp::post()
+        .and(warp::path("upload_map"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(warp::body::json::<request::UploadMap>())
+        .and(filter.clone())
+        .and_then(handlers::upload_map)
     }
 }

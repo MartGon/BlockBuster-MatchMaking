@@ -65,4 +65,6 @@ async fn main() {
     
     let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder);
     warp::serve(routes).run((address.ip(), args.port)).await;
+
+    // TODO: Check the database periodically for AFK games
 }
