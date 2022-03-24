@@ -260,10 +260,10 @@ pub mod handlers
 
         let map_file_name = map.clone() + ".zip";
         let maps_folder = Path::new(&maps_folder);
-        let map_path = maps_folder.join(&map);
-        println!("Map path folder is {}", map_path.to_str().unwrap());
+        let map_folder = maps_folder.join(&map);
+        //println!("Map path folder is {}", map_folder.to_str().unwrap());
 
-        if map_path.exists() && map_path.is_dir()
+        if map_folder.exists() && map_folder.is_dir()
         {
             let zip_path = maps_folder.join(map_file_name);
 
@@ -302,28 +302,26 @@ pub mod handlers
 
         // Check if it's an update
         let map_filename = map.clone() + ".zip";
-        let maps_folder = Path::new(&maps_folder);
+        let map_folder_path = maps_folder;
+        let maps_folder = Path::new(&map_folder_path);
         let map_folder = maps_folder.join(&map);
 
         let yml_path = map_folder.join(map.clone() + ".yml");
         if map_folder.exists() && map_folder.is_dir()
         {
-            let mut yml_file = std::fs::File::open(&yml_path).unwrap();
-            let mut data_str = String::new();
-            yml_file.read_to_string(&mut data_str).unwrap();
-            let yml = &YamlLoader::load_from_str(&data_str).unwrap()[0];
+            let yml = read_map_yaml(&map, &map_folder_path);
             let pass = yml["password"].as_str().unwrap();
 
             if pass != upload_map_req.password
             {
-                let err = format!("Password {} to update map {} was not correct", upload_map_req.password, map);
+                let err = format!("Password to update map {} was not correct", map);
                 return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
             }
         }
 
         // Write map
         let zip_path = maps_folder.join(map_filename);
-        println!("Zip file path is {}", zip_path.to_str().unwrap());
+        //println!("Zip file path is {}", zip_path.to_str().unwrap());
         if let Ok(buffer) = base64::decode(upload_map_req.map_zip)
         {
             // Create dir
@@ -340,7 +338,7 @@ pub mod handlers
             
             // Extract zip
             let file = std::fs::File::open(&zip_path).unwrap();
-            zip_extract(file, maps_folder.to_str().unwrap().to_string());
+            zip_extract(file, &maps_folder.to_str().unwrap().to_string());
 
             // Create config file
             let mut output = String::new();
@@ -361,7 +359,21 @@ pub mod handlers
         return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
     }
 
-    fn zip_extract(file : File, folder : String)
+    fn read_map_yaml(map : &String, maps_folder : &String) -> yaml_rust::Yaml
+    {
+        let maps_folder = Path::new(&maps_folder);
+        let map_folder = maps_folder.join(&map);
+        let yml_path = map_folder.join(map.clone() + ".yml");
+
+        let mut yml_file = std::fs::File::open(&yml_path).unwrap();
+        let mut data_str = String::new();
+        yml_file.read_to_string(&mut data_str).unwrap();
+        let yml = YamlLoader::load_from_str(&data_str).unwrap().remove(0);
+
+        return yml;
+    }
+
+    fn zip_extract(file : File, folder : &String)
     {
         let folder = Path::new(folder.as_str());
         let mut archive = zip::ZipArchive::new(file).unwrap();
@@ -396,7 +408,7 @@ pub mod handlers
         }
     }
 
-    fn zip_dir<T>(it: &mut dyn Iterator<Item=DirEntry>, prefix: &str, writer: T, method: zip::CompressionMethod)
+    fn _zip_dir<T>(it: &mut dyn Iterator<Item=DirEntry>, prefix: &str, writer: T, method: zip::CompressionMethod)
               -> zip::result::ZipResult<()> where T: Write+Seek
     {
         let mut zip = zip::ZipWriter::new(writer);
@@ -560,7 +572,7 @@ pub mod handlers
         return Err(QueryError::EntityNotFound);
     }
 
-    fn is_game_empty(db : &database::DB, game_id : &uuid::Uuid) -> bool
+    fn _is_game_empty(db : &database::DB, game_id : &uuid::Uuid) -> bool
     {
         let game_players = get_game_players_info(&db, &game_id);
         return game_players.is_empty();
