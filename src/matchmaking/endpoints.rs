@@ -10,9 +10,7 @@ pub mod handlers
     use walkdir::{WalkDir, DirEntry};
     use yaml_rust::YamlEmitter;
     use yaml_rust::YamlLoader;
-    use yaml_rust::emitter;
     use yaml_rust::yaml::Hash;
-    use zip::ZipWriter;
     use std::convert::Infallible;
     use std::time::Duration;
     use std::process::Command;
@@ -22,7 +20,6 @@ pub mod handlers
     use crate::matchmaking::payload;
     use crate::matchmaking::entity;
     use crate::matchmaking::database;
-    use crate::matchmaking::payload::request::DownloadMap;
 
     use rand::Rng;
     use ringbuffer::RingBufferExt;
@@ -195,7 +192,7 @@ pub mod handlers
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
-    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String) -> Result<impl warp::Reply, Infallible>
+    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String, maps_folder : String) -> Result<impl warp::Reply, Infallible>
     {
         let game_id = start_game_req.game_id;
 
@@ -208,7 +205,7 @@ pub mod handlers
                 {
                     if let PlayerType::Host = player_game.player_type 
                     {
-                        if let Ok((address, port)) = launch_game(&db, game_id, exec_path)
+                        if let Ok((address, port)) = launch_game(&db, game_id, exec_path, maps_folder)
                         {
                             game.port = Some(port);
     
@@ -269,11 +266,15 @@ pub mod handlers
         if map_path.exists() && map_path.is_dir()
         {
             let zip_path = maps_folder.join(map_file_name);
+
+            // Create Zip File - This is no longer needed
+            /*
             let file = File::create(&zip_path).unwrap();
             let walkdir = WalkDir::new(map_path.to_str().unwrap());
             let it = walkdir.into_iter();
             let res = zip_dir(&mut it.filter_map(|e| e.ok()), map_path.to_str().unwrap(),
                  file, zip::CompressionMethod::Stored);
+            */
 
             // Read file, encode and write response
             let mut buffer = Vec::new();
@@ -315,7 +316,7 @@ pub mod handlers
 
             if pass != upload_map_req.password
             {
-                let err = format!("Password to update map {} was not correct", map);
+                let err = format!("Password {} to update map {} was not correct", upload_map_req.password, map);
                 return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
             }
         }
@@ -459,7 +460,7 @@ pub mod handlers
         GameNotFound
     }
 
-    fn launch_game(db : & database::DB, game_id : uuid::Uuid, exec_path : String) -> Result<(& str, u16), LaunchServerError>
+    fn launch_game(db : &database::DB, game_id : uuid::Uuid, exec_path : String, maps_folder : String) -> Result<(& str, u16), LaunchServerError>
     {
         if let Some(game) = db.game_table.get(&game_id)
         {   
@@ -471,13 +472,16 @@ pub mod handlers
             
             //let program = "/home/defu/Projects/BlockBuster/build/src/server/Server";
             let program = exec_path;
-            let map = "/home/defu/Projects/BlockBuster/resources/maps/Alpha2.bbm";
+
+            let maps_folder = Path::new(&maps_folder);
+            let map_folder = maps_folder.join(&game_info.map);
+            let map_path = map_folder.join(game_info.map + ".bbm");
             let gamemode = "Deathmatch";
 
             let res = Command::new(program)
                 .arg("-a").arg(address)
                 .arg("-p").arg(port.to_string())
-                .arg("-m").arg(map)
+                .arg("-m").arg(map_path)
                 .arg("-mp").arg(game.max_players.to_string())
                 .arg("-sp").arg(game_info.players.to_string())
                 .arg("-gm").arg(gamemode)
@@ -650,7 +654,7 @@ pub mod filters
         .or(toggle_ready(db.clone()))
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
-        .or(start_game(db.clone(), exec_path))
+        .or(start_game(db.clone(), exec_path, maps_folder.clone()))
         .or(get_available_maps(maps_folder.clone()))
         .or(download_map(maps_folder.clone()))
         .or(upload_map(maps_folder.clone()))
@@ -757,11 +761,12 @@ pub mod filters
         .and_then(handlers::update_game)
     }
 
-    pub fn start_game(db : database::DB, exec_path : String)
+    pub fn start_game(db : database::DB, exec_path : String, maps_folder : String)
     -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || db.clone());
         let param2 = warp::any().map(move || exec_path.clone());
+        let param3 = warp::any().map(move || maps_folder.clone());
 
         warp::post()
         .and(warp::path("start_game"))
@@ -770,6 +775,7 @@ pub mod filters
         .and(warp::body::json::<request::StartGame>())
         .and(filter.clone())
         .and(param2.clone())
+        .and(param3.clone())
         .and_then(handlers::start_game)
     }
 
