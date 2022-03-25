@@ -34,6 +34,7 @@ pub enum GameState{
 #[derive(Debug, Clone)]
 pub struct Game{
     pub id : uuid::Uuid,
+    pub key : uuid::Uuid,
     pub name : String,
     pub map : String,
     pub mode : String,
@@ -50,6 +51,7 @@ impl Game{
     pub fn new(name : String, map : String, mode : String, max_players : u8) -> Game{
         Game{
             id : uuid::Uuid::new_v4(),
+            key : uuid::Uuid::new_v4(),
             name,
             map,
             mode,
@@ -58,7 +60,7 @@ impl Game{
             
             state : GameState::InLobby,
             address : None,
-            port : None,            
+            port : None         
         }
     }
 }

@@ -7,7 +7,7 @@ pub mod handlers
     use std::io::Seek;
     use std::io::Write;
     use std::path::Path;
-    use walkdir::{WalkDir, DirEntry};
+    use walkdir::{DirEntry};
     use yaml_rust::YamlEmitter;
     use yaml_rust::YamlLoader;
     use yaml_rust::yaml::Hash;
@@ -15,6 +15,7 @@ pub mod handlers
     use std::time::Duration;
     use std::process::Command;
 
+    use crate::matchmaking::entity::Game;
     use crate::matchmaking::entity::GameState;
     use crate::matchmaking::entity::PlayerType;
     use crate::matchmaking::payload;
@@ -35,6 +36,7 @@ pub mod handlers
         let player = entity::Player::new(player.username.clone());
         let player_copy = player.clone();
         db.player_table.insert(player.id, player);
+        println!("Player login {}", player_copy.id);
 
         let response = payload::response::Login{id : player_copy.id, username : player_copy.name};
         Ok(warp::reply::json(&response))
@@ -60,6 +62,7 @@ pub mod handlers
     -> Result<impl warp::Reply, warp::Rejection>
     {
         let game = entity::Game::new(cg_req.name, cg_req.map, cg_req.mode, cg_req.max_players);
+        println!("Game key is {}", game.key);
         db.game_table.insert(game.id.clone(), game.clone());
 
         let game_sem = entity::GameSem::new(game.id);
@@ -103,24 +106,7 @@ pub mod handlers
     {
         let player_id = leave_game_req.player_id;
         
-        if let Some(entry)  = db.player_game_table.remove(&player_id)
-        {
-            let game_id = &entry.game_id;
-            let game_players = get_game_players(&db, game_id);
-            if game_players.is_empty()
-            {
-                db.game_table.remove(game_id);
-            }
-            else
-            {
-                let player = game_players.first().unwrap();
-                let mut new_host = db.player_game_table.get(&player.id).unwrap();
-                new_host.player_type = PlayerType::Host;
-                db.player_game_table.insert(player.id, new_host);
-            }
-
-            notify_game_update(&db, game_id);
-        }
+        leave_game_fn(&db, player_id);
 
         Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK))
     }
@@ -234,16 +220,25 @@ pub mod handlers
     pub async fn get_available_maps(maps_folder : String) -> Result<impl warp::Reply, warp::Rejection>
     {
         let maps : Vec<String>;
-        let maps_folder = Path::new(&maps_folder);
-        let paths = maps_folder.read_dir().unwrap();
+        let maps_folder_path = Path::new(&maps_folder);
+        let paths = maps_folder_path.read_dir().unwrap();
         maps = paths.into_iter()
         .filter(|r| r.is_ok()) 
         .map(|r| r.unwrap().path()) 
         .filter(|r| r.is_dir()) 
         .map(|r| r.file_name().unwrap().to_str().unwrap().to_string())
         .collect();
+        
+        let mut maps_info = Vec::<payload::response::MapInfo>::new();
+        for map in maps
+        {
+            let yml = read_map_yaml(&map, &maps_folder);
+            let game_modes = yml["gamemodes"].as_vec().unwrap().into_iter().map(|x| x.as_str().unwrap().to_string()).collect();
+            let map_info = payload::response::MapInfo{map_name : map, supported_gamemodes : game_modes };
+            maps_info.push(map_info);
+        }
 
-        let response = payload::response::AvailableMaps{maps};
+        let response = payload::response::AvailableMaps{maps : maps_info};
         Ok(warp::reply::json(&response))
     }
 
@@ -359,6 +354,35 @@ pub mod handlers
         return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
     }
 
+    pub async fn notify_server_event(server_event : payload::request::NotifyServerEvent, db : database::DB) -> Result<impl warp::Reply, Infallible>
+    {
+        use payload::request::ServerEvent;
+        let event_type = server_event.event;
+
+        let game_id = server_event.game_id;
+        if let Some(game) = db.game_table.get(&server_event.game_id)
+        {
+            if game.key == server_event.server_key
+            {
+                match event_type
+                {
+                    ServerEvent::PlayerLeft{player_id} => leave_game_fn(&db, player_id),
+                    ServerEvent::GameEnded => set_game_state(&db, &game_id, GameState::InLobby),
+                }
+
+                return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
+            }
+
+            let err = format!("Key was not correct for game with id {}", server_event.game_id.to_string());
+            return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
+        }
+
+        let err = format!("Could not find game with id {}", server_event.game_id.to_string());
+        Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
+
+    // Helper Functions
+
     fn read_map_yaml(map : &String, maps_folder : &String) -> yaml_rust::Yaml
     {
         let maps_folder = Path::new(&maps_folder);
@@ -472,6 +496,28 @@ pub mod handlers
         GameNotFound
     }
 
+    fn leave_game_fn(db : &database::DB, player_id : uuid::Uuid)
+    {
+        if let Some(entry)  = db.player_game_table.remove(&player_id)
+        {
+            let game_id = &entry.game_id;
+            let game_players = get_game_players(&db, game_id);
+            if game_players.is_empty()
+            {
+                db.game_table.remove(game_id);
+            }
+            else
+            {
+                let player = game_players.first().unwrap();
+                let mut new_host = db.player_game_table.get(&player.id).unwrap();
+                new_host.player_type = PlayerType::Host;
+                db.player_game_table.insert(player.id, new_host);
+            }
+
+            notify_game_update(&db, game_id);
+        }
+    }
+
     fn launch_game(db : &database::DB, game_id : uuid::Uuid, exec_path : String, maps_folder : String) -> Result<(& str, u16), LaunchServerError>
     {
         if let Some(game) = db.game_table.get(&game_id)
@@ -482,13 +528,13 @@ pub mod handlers
             let address = "localhost";
             let port = get_free_port(db);
             
-            //let program = "/home/defu/Projects/BlockBuster/build/src/server/Server";
             let program = exec_path;
-
             let maps_folder = Path::new(&maps_folder);
             let map_folder = maps_folder.join(&game_info.map);
             let map_path = map_folder.join(game_info.map + ".bbm");
-            let gamemode = "Deathmatch";
+            let gamemode = game_info.mode;
+
+            // TODO: Provide server key to exec
 
             let res = Command::new(program)
                 .arg("-a").arg(address)
@@ -504,10 +550,21 @@ pub mod handlers
                 return Err(LaunchServerError::CouldNotlaunch);
             }
 
+            set_game_state(&db, &game_id, GameState::InGame);
+
             return Ok((address, port));
         }
 
         return Err(LaunchServerError::GameNotFound);
+    }
+
+    fn set_game_state(db : &database::DB, game_id : &uuid::Uuid, state : GameState)
+    {
+        if let Some(mut game) = db.game_table.get(&game_id)
+        {
+            game.state = state;
+            db.game_table.insert(game.id, game);
+        }
     }
 
     fn get_free_port(db : &database::DB) -> u16
@@ -670,6 +727,7 @@ pub mod filters
         .or(get_available_maps(maps_folder.clone()))
         .or(download_map(maps_folder.clone()))
         .or(upload_map(maps_folder.clone()))
+        .or(notify_server_event(db.clone()))
     }
 
     pub fn login(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
@@ -825,9 +883,23 @@ pub mod filters
         warp::post()
         .and(warp::path("upload_map"))
         .and(warp::path::end())
-        .and(warp::body::content_length_limit(1024 * 32))
+        .and(warp::body::content_length_limit(1024 * 128))
         .and(warp::body::json::<request::UploadMap>())
         .and(filter.clone())
         .and_then(handlers::upload_map)
+    }
+
+    pub fn notify_server_event(db : database::DB,)
+    -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || db.clone());
+
+        warp::post()
+        .and(warp::path("notify_server_event"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 64))
+        .and(warp::body::json())
+        .and(filter.clone())
+        .and_then(handlers::notify_server_event)
     }
 }

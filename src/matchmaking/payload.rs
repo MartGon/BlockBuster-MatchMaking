@@ -81,6 +81,21 @@ pub mod request
         pub password : String, // Used to update the map
         pub supported_gamemodes : Vec<String>
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub enum ServerEvent
+    {
+        PlayerLeft{ player_id : uuid::Uuid},
+        GameEnded
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct NotifyServerEvent
+    {
+        pub server_key : uuid::Uuid,
+        pub game_id : uuid::Uuid,
+        pub event : ServerEvent
+    }
 }
 
 pub mod response
@@ -132,9 +147,17 @@ pub mod response
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct MapInfo
+    {
+        pub map_name : String,
+        pub supported_gamemodes : Vec<String>,
+        // pub map_picture : String
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct AvailableMaps
     {
-        pub maps : Vec<String>,
+        pub maps : Vec<MapInfo>,
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
