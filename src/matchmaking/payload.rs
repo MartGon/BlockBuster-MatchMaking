@@ -96,6 +96,12 @@ pub mod request
         pub game_id : uuid::Uuid,
         pub event : ServerEvent
     }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct MapPicture
+    {
+        pub map_name : String
+    }
 }
 
 pub mod response
@@ -164,5 +170,11 @@ pub mod response
     pub struct DownloadMap
     {
         pub map : String,
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct MapPicture
+    {
+        pub map_picture : String,
     }
 }

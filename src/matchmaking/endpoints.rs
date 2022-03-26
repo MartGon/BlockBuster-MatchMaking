@@ -254,13 +254,14 @@ pub mod handlers
         }
 
         let map_file_name = map.clone() + ".zip";
-        let maps_folder = Path::new(&maps_folder);
-        let map_folder = maps_folder.join(&map);
+        let maps_folder_path = Path::new(&maps_folder);
+        let map_folder = get_map_folder(&map, &maps_folder);
+        let map_folder = Path::new(&map_folder);
         //println!("Map path folder is {}", map_folder.to_str().unwrap());
 
         if map_folder.exists() && map_folder.is_dir()
         {
-            let zip_path = maps_folder.join(map_file_name);
+            let zip_path = maps_folder_path.join(map_file_name);
 
             // Create Zip File - This is no longer needed
             /*
@@ -279,6 +280,44 @@ pub mod handlers
 
             let response = payload::response::DownloadMap{map : output};
             return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
+        }
+
+        let err = format!("Could not find map with name {}", map);
+        return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+    }
+
+    pub async fn get_map_picture(map_picture_req : payload::request::MapPicture, maps_folder : String) -> Result<impl warp::Reply, Infallible>
+    {
+        let map = map_picture_req.map_name; 
+        
+        // Check filename. Shouldn't contain slahes. can be a security issue
+        if map.contains('/')
+        {
+            let err = format!("Illegal character in map name");
+            return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
+        }
+
+        let pic_file_name =  map.clone() + ".jpg";
+        let map_folder = get_map_folder(&map, &maps_folder);
+        let map_folder = Path::new(&map_folder);
+
+        if map_folder.exists() && map_folder.is_dir()
+        {
+            let pic_path = map_folder.join(pic_file_name);
+            if let Ok(mut pic_file) = std::fs::File::open(pic_path)
+            {
+                let mut buffer = Vec::new();
+                pic_file.read_to_end(&mut buffer).unwrap();
+                
+                let b64 = base64::encode(buffer);
+                let response = payload::response::MapPicture{map_picture : b64};
+                return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
+            }
+            else
+            {
+                let err = format!("Could not find map picture");
+                return Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND));
+            }
         }
 
         let err = format!("Could not find map with name {}", map);
@@ -366,8 +405,14 @@ pub mod handlers
             {
                 match event_type
                 {
-                    ServerEvent::PlayerLeft{player_id} => leave_game_fn(&db, player_id),
-                    ServerEvent::GameEnded => set_game_state(&db, &game_id, GameState::InLobby),
+                    ServerEvent::PlayerLeft{player_id} => {
+                        println!("Player with id {} left game {}", player_id, game_id);
+                        leave_game_fn(&db, player_id);
+                    },
+                    ServerEvent::GameEnded => { 
+                        println!("Game {} is over", game_id);
+                        set_game_state(&db, &game_id, GameState::InLobby);
+                    },
                 }
 
                 return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
@@ -381,12 +426,13 @@ pub mod handlers
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
+
     // Helper Functions
 
     fn read_map_yaml(map : &String, maps_folder : &String) -> yaml_rust::Yaml
     {
-        let maps_folder = Path::new(&maps_folder);
-        let map_folder = maps_folder.join(&map);
+        let map_folder = get_map_folder(map, maps_folder);
+        let map_folder = Path::new(&map_folder);
         let yml_path = map_folder.join(map.clone() + ".yml");
 
         let mut yml_file = std::fs::File::open(&yml_path).unwrap();
@@ -395,6 +441,13 @@ pub mod handlers
         let yml = YamlLoader::load_from_str(&data_str).unwrap().remove(0);
 
         return yml;
+    }
+
+    fn get_map_folder(map : &String, maps_folder : &String) -> String
+    {
+        let maps_folder = Path::new(&maps_folder);
+        let map_folder = maps_folder.join(&map);
+        return map_folder.as_os_str().to_str().unwrap().to_string();
     }
 
     fn zip_extract(file : File, folder : &String)
@@ -543,6 +596,9 @@ pub mod handlers
                 .arg("-mp").arg(game.max_players.to_string())
                 .arg("-sp").arg(game_info.players.to_string())
                 .arg("-gm").arg(gamemode)
+                
+                .arg("-mmid").arg(game_id.to_string())
+                .arg("-mmk").arg(game.key.to_string())
                 .spawn();
 
             if let Err(_error) = res
@@ -726,6 +782,7 @@ pub mod filters
         .or(start_game(db.clone(), exec_path, maps_folder.clone()))
         .or(get_available_maps(maps_folder.clone()))
         .or(download_map(maps_folder.clone()))
+        .or(get_map_picture(maps_folder.clone()))
         .or(upload_map(maps_folder.clone()))
         .or(notify_server_event(db.clone()))
     }
@@ -875,6 +932,20 @@ pub mod filters
         .and_then(handlers::download_map)
     }
 
+    pub fn get_map_picture(maps_folder : String)
+    -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let map_folder = warp::any().map(move || maps_folder.clone());
+
+        warp::post()
+        .and(warp::path("get_map_picture"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 64))
+        .and(warp::body::json::<request::MapPicture>())
+        .and(map_folder)
+        .and_then(handlers::get_map_picture)
+    }
+
     pub fn upload_map(maps_folder : String)
     -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
@@ -889,7 +960,7 @@ pub mod filters
         .and_then(handlers::upload_map)
     }
 
-    pub fn notify_server_event(db : database::DB,)
+    pub fn notify_server_event(db : database::DB)
     -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || db.clone());
@@ -898,7 +969,7 @@ pub mod filters
         .and(warp::path("notify_server_event"))
         .and(warp::path::end())
         .and(warp::body::content_length_limit(1024 * 64))
-        .and(warp::body::json())
+        .and(warp::body::json::<request::NotifyServerEvent>())
         .and(filter.clone())
         .and_then(handlers::notify_server_event)
     }
