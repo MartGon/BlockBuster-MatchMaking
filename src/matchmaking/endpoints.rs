@@ -166,7 +166,11 @@ pub mod handlers
         if let Some(game) = db.game_table.get(&game_id)
         {
             let game_sem = db.game_sem_table.get(&game_id).expect("Inconsistency: Game had no lock");
-            let _game_sem = game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(15));
+            
+            if !update_game_req.forced
+            {
+                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(15)).unwrap();
+            }
 
             if let Ok(response) = get_game_details(&db, &game.id)
             {
@@ -199,6 +203,7 @@ pub mod handlers
                             game.state = GameState::InGame;
 
                             db.game_table.insert(game.id, game);
+                            get_game_players(&db, &game_id).into_iter().for_each(|x| set_player_ready(&db, &x.id, false));
                             notify_game_update(&db, &game_id);
 
                             return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
@@ -721,6 +726,19 @@ pub mod handlers
         }
 
         Err(QueryError::EntityNotFound)
+    }
+
+    fn set_player_ready(db : &database::DB, player_id : &uuid::Uuid, ready : bool)
+    {
+        if let Some(mut player_game)  = db.player_game_table.get(&player_id)
+        {
+            if let entity::PlayerType::Player(_is_ready) = player_game.player_type
+            {
+                player_game.player_type = entity::PlayerType::Player(ready);
+                notify_game_update(&db, &player_game.game_id);
+                db.player_game_table.insert(player_id.clone(), player_game);
+            }
+        }
     }
 
     fn get_game_players(db : &database::DB, game_id : &uuid::Uuid) -> Vec<entity::Player>

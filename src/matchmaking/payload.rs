@@ -58,6 +58,7 @@ pub mod request
     {
         pub game_id : uuid::Uuid,
         // TODO: Add player id. Only players in game should be able to recv updates.
+        pub forced : bool,
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
