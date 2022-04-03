@@ -55,15 +55,6 @@ async fn main() {
 
     let db = database::DB::new();
 
-    let name = "Sample".to_string();
-    let map = "Kobra".to_string();
-    let mode = "DeathMatch".to_string();
-    let max_players : u8 = 16;
-    let sample_game = matchmaking::entity::Game::new(name, map, mode, max_players);
-    let game_sem = entity::GameSem::new(sample_game.id.clone());
-    db.game_table.insert(sample_game.id.clone(), sample_game.clone());
-    db.game_sem_table.insert(sample_game.id, game_sem);
-
     let copy = db.clone();
     std::thread::spawn(move ||{
         update(&copy);
@@ -86,7 +77,6 @@ fn update(db : &database::DB)
 
         let games = db.game_table.get_all();
         games.into_iter().for_each(|game| {
-            println!("Found game with id {}", game.id);
             let elapsed = now.duration_since(game.last_update);
             let elapsed = elapsed.unwrap();
             if elapsed > MAX_DURATION && matches!(game.state, GameState::InLobby)
