@@ -70,7 +70,7 @@ async fn main() {
 fn update(db : &database::DB)
 {
     let SLEEP_DURATION  = std::time::Duration::from_secs(5);
-    let MAX_DURATION = std::time::Duration::from_secs(60 * 1); // 3 MIN
+    let MAX_DURATION = std::time::Duration::from_secs(60 * 3); // 3 MIN
     loop {
 
         let now = std::time::SystemTime::now();
