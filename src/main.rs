@@ -5,6 +5,7 @@ use matchmaking::entity;
 use matchmaking::database;
 
 use clap::Parser;
+use matchmaking::entity::GameState;
 
 use std::net::ToSocketAddrs;
 use std::path::Path;
@@ -62,9 +63,39 @@ async fn main() {
     let game_sem = entity::GameSem::new(sample_game.id.clone());
     db.game_table.insert(sample_game.id.clone(), sample_game.clone());
     db.game_sem_table.insert(sample_game.id, game_sem);
+
+    let copy = db.clone();
+    std::thread::spawn(move ||{
+        update(&copy);
+    });
     
     let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder);
     warp::serve(routes).run((address.ip(), args.port)).await;
 
     // TODO: Check the database periodically for AFK games
+}
+
+
+fn update(db : &database::DB)
+{
+    let SLEEP_DURATION  = std::time::Duration::from_secs(5);
+    let MAX_DURATION = std::time::Duration::from_secs(60 * 1); // 3 MIN
+    loop {
+
+        let now = std::time::SystemTime::now();
+
+        let games = db.game_table.get_all();
+        games.into_iter().for_each(|game| {
+            println!("Found game with id {}", game.id);
+            let elapsed = now.duration_since(game.last_update);
+            let elapsed = elapsed.unwrap();
+            if elapsed > MAX_DURATION && matches!(game.state, GameState::InLobby)
+            {
+                db.game_table.remove(&game.id);
+                println!("Removing game with id {}", game.id);
+            }
+        });
+
+        std::thread::sleep(SLEEP_DURATION);
+    }
 }

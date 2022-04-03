@@ -44,6 +44,8 @@ pub struct Game{
     pub state : GameState,
     pub address : Option<String>,
     pub port : Option<u16>,
+
+    pub last_update : std::time::SystemTime,
 }
 
 impl Game{
@@ -60,7 +62,9 @@ impl Game{
             
             state : GameState::InLobby,
             address : None,
-            port : None         
+            port : None,
+            
+            last_update : std::time::SystemTime::now()
         }
     }
 }

@@ -15,7 +15,6 @@ pub mod handlers
     use std::time::Duration;
     use std::process::Command;
 
-    use crate::matchmaking::entity::Game;
     use crate::matchmaking::entity::GameState;
     use crate::matchmaking::entity::PlayerType;
     use crate::matchmaking::payload;
@@ -169,7 +168,7 @@ pub mod handlers
             
             if !update_game_req.forced
             {
-                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(15)).unwrap();
+                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(5)).unwrap();
             }
 
             if let Ok(response) = get_game_details(&db, &game.id)
@@ -592,8 +591,6 @@ pub mod handlers
             let map_path = map_folder.join(game_info.map + ".bbm");
             let gamemode = game_info.mode;
 
-            // TODO: Provide server key to exec
-
             let res = Command::new(program)
                 .arg("-a").arg(address)
                 .arg("-p").arg(port.to_string())
@@ -663,6 +660,13 @@ pub mod handlers
         {
             game_sem.sem.notify_all();
             notified = true;
+            
+            // Update last time this game had changes
+            if let Some(mut game) = db.game_table.get(&game_id)
+            {
+                game.last_update = std::time::SystemTime::now();
+                db.game_table.insert(game.id, game);
+            }
         }
 
         return notified;
