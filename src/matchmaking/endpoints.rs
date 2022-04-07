@@ -983,7 +983,7 @@ pub mod filters
         warp::post()
         .and(warp::path("upload_map"))
         .and(warp::path::end())
-        .and(warp::body::content_length_limit(1024 * 1024))
+        .and(warp::body::content_length_limit(1024 * 1024 * 16)) // 16 MB
         .and(warp::body::json::<request::UploadMap>())
         .and(filter.clone())
         .and_then(handlers::upload_map)
