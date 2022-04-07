@@ -251,7 +251,7 @@ pub mod handlers
         let map = download_map_req.map_name; 
         
         // Check filename. Shouldn't contain slahes. can be a security issue
-        if map.contains('/')
+        if !is_map_name_valid(&map)
         {
             let err = format!("Illegal character in map name");
             return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
@@ -295,7 +295,7 @@ pub mod handlers
         let map = map_picture_req.map_name; 
         
         // Check filename. Shouldn't contain slahes. can be a security issue
-        if map.contains('/')
+        if !is_map_name_valid(&map)
         {
             let err = format!("Illegal character in map name");
             return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
@@ -332,7 +332,7 @@ pub mod handlers
     {
         // Check filename. Shouldn't contain slahes. can be a security issue
         let map = upload_map_req.map_name; 
-        if map.contains('/')
+        if !is_map_name_valid(&map)
         {
             let err = format!("Illegal character in map name");
             return Ok(reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
@@ -438,6 +438,7 @@ pub mod handlers
         let map_folder = get_map_folder(map, maps_folder);
         let map_folder = Path::new(&map_folder);
         let yml_path = map_folder.join(map.clone() + ".yml");
+        println!("YML path is {}", yml_path.to_str().unwrap());
 
         let mut yml_file = std::fs::File::open(&yml_path).unwrap();
         let mut data_str = String::new();
@@ -516,6 +517,12 @@ pub mod handlers
 
         zip.finish()?;
         Result::Ok(())
+    }
+
+    fn is_map_name_valid(map_name : &String) -> bool
+    {
+        let reg = regex::Regex::new(r"[A-z]*").unwrap();
+        return reg.is_match(map_name);
     }
 
     #[derive(Debug)]
@@ -976,7 +983,7 @@ pub mod filters
         warp::post()
         .and(warp::path("upload_map"))
         .and(warp::path::end())
-        .and(warp::body::content_length_limit(1024 * 128))
+        .and(warp::body::content_length_limit(1024 * 1024))
         .and(warp::body::json::<request::UploadMap>())
         .and(filter.clone())
         .and_then(handlers::upload_map)
