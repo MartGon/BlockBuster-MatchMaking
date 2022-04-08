@@ -521,7 +521,7 @@ pub mod handlers
 
     fn is_map_name_valid(map_name : &String) -> bool
     {
-        let reg = regex::Regex::new(r"[A-z]*").unwrap();
+        let reg = regex::Regex::new(r"[A-z0-9]*").unwrap();
         return reg.is_match(map_name);
     }
 
