@@ -80,7 +80,8 @@ pub mod request
         pub map_name : String,
         pub map_zip : String,
         pub password : String, // Used to update the map
-        pub supported_gamemodes : Vec<String>
+        pub supported_gamemodes : Vec<String>,
+        pub map_version : String,
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -123,6 +124,7 @@ pub mod response
         pub id : uuid::Uuid,
         pub name : String,
         pub map : String,
+        pub map_version : String,
         pub mode : String,
         pub max_players : u8,
         pub players : u8,
@@ -157,6 +159,7 @@ pub mod response
     pub struct MapInfo
     {
         pub map_name : String,
+        pub map_version : String,
         pub supported_gamemodes : Vec<String>,
         // pub map_picture : String
     }

@@ -57,10 +57,13 @@ pub mod handlers
         Ok(warp::reply::json(&response))
     }
 
-    pub async fn create_game(cg_req : payload::request::CreateGame, db : database::DB)
+    pub async fn create_game(cg_req : payload::request::CreateGame, db : database::DB, maps_folder : String)
     -> Result<impl warp::Reply, warp::Rejection>
     {
-        let game = entity::Game::new(cg_req.name, cg_req.map, cg_req.mode, cg_req.max_players);
+        let yml = read_map_yaml(&cg_req.map, &maps_folder);
+        let version = yml["version"].as_str().unwrap().to_string();
+            
+        let game = entity::Game::new(cg_req.name, cg_req.map, version, cg_req.mode, cg_req.max_players);
         println!("Game key is {}", game.key);
         db.game_table.insert(game.id.clone(), game.clone());
 
@@ -238,8 +241,11 @@ pub mod handlers
         {
             let yml = read_map_yaml(&map, &maps_folder);
             let game_modes = yml["gamemodes"].as_vec().unwrap().into_iter().map(|x| x.as_str().unwrap().to_string()).collect();
-            let map_info = payload::response::MapInfo{map_name : map, supported_gamemodes : game_modes };
-            maps_info.push(map_info);
+            if let Some(version) = yml["version"].as_str()
+            {
+                let map_info = payload::response::MapInfo{ map_name : map, supported_gamemodes : game_modes, map_version : version.to_string() };
+                maps_info.push(map_info);
+            }            
         }
 
         let response = payload::response::AvailableMaps{maps : maps_info};
@@ -382,6 +388,8 @@ pub mod handlers
             let mut output = String::new();
             let mut hash = Hash::new();
             hash.insert(yaml_rust::Yaml::String("password".to_string()), yaml_rust::Yaml::String(upload_map_req.password));
+            hash.insert(yaml_rust::Yaml::String("version".to_string()), yaml_rust::Yaml::String(upload_map_req.map_version));
+
             let gamemodes = upload_map_req.supported_gamemodes.iter().map(|x| yaml_rust::Yaml::String(x.to_string())).collect();
             hash.insert(yaml_rust::Yaml::String("gamemodes".to_string()), yaml_rust::Yaml::Array(gamemodes));
             let mut emmiter = YamlEmitter::new(&mut output);
@@ -724,6 +732,7 @@ pub mod handlers
                 id : game.id,
                 name : game.name, 
                 map : game.map, 
+                map_version : game.map_version,
                 mode : game.mode, 
                 max_players : game.max_players, 
                 players : player_amount, 
@@ -802,7 +811,7 @@ pub mod filters
     {
         login(db.clone())
         .or(list_games(db.clone()))
-        .or(create_game(db.clone()))
+        .or(create_game(db.clone(), maps_folder.clone()))
         .or(join_game(db.clone()))
         .or(leave_game(db.clone()))
         .or(toggle_ready(db.clone()))
@@ -851,9 +860,10 @@ pub mod filters
         .and_then(handlers::join_game)
     }
 
-    pub fn create_game(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    pub fn create_game(db : database::DB, maps_folder : String) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || db.clone());
+        let param3 = warp::any().map(move || maps_folder.clone());
 
         warp::post()
         .and(warp::path("create_game"))
@@ -861,6 +871,7 @@ pub mod filters
         .and(warp::body::content_length_limit(1024 * 16))
         .and(warp::body::json::<request::CreateGame>())
         .and(filter.clone())
+        .and(param3.clone())
         .and_then(handlers::create_game)
     }
 

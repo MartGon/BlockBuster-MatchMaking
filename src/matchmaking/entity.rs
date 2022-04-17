@@ -37,6 +37,7 @@ pub struct Game{
     pub key : uuid::Uuid,
     pub name : String,
     pub map : String,
+    pub map_version : String,
     pub mode : String,
     pub max_players : u8,
     pub chat : ringbuffer::AllocRingBuffer<String>,
@@ -50,12 +51,13 @@ pub struct Game{
 
 impl Game{
     
-    pub fn new(name : String, map : String, mode : String, max_players : u8) -> Game{
+    pub fn new(name : String, map : String, map_version : String, mode : String, max_players : u8) -> Game{
         Game{
             id : uuid::Uuid::new_v4(),
             key : uuid::Uuid::new_v4(),
             name,
             map,
+            map_version,
             mode,
             max_players,
             chat : AllocRingBuffer::with_capacity(16),
