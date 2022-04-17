@@ -161,9 +161,9 @@ pub mod handlers
             {
                 player_game.player_type = entity::PlayerType::Player(!ready);
                 let response = serde_json::json!({"ready" : ready});
-                notify_game_update(&db, &player_game.game_id);
 
-                db.player_game_table.insert(player_id, player_game);
+                db.player_game_table.insert(player_id, player_game.clone());
+                notify_game_update(&db, &player_game.game_id);
                 
                 return Ok(reply::with_status(reply::json(&response), StatusCode::OK));
             }
@@ -209,7 +209,7 @@ pub mod handlers
             
             if !update_game_req.forced
             {
-                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(15)).unwrap();
+                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(5)).unwrap();
             }
 
             if let Ok(response) = get_game_details(&db, &game.id)
@@ -721,6 +721,10 @@ pub mod handlers
                 db.game_table.insert(game.id, game);
             }
         }
+        else
+        {
+            println!("Could not notify game update. Sem not found");
+        }
 
         return notified;
     }
@@ -793,8 +797,8 @@ pub mod handlers
             if let entity::PlayerType::Player(_is_ready) = player_game.player_type
             {
                 player_game.player_type = entity::PlayerType::Player(ready);
+                db.player_game_table.insert(player_id.clone(), player_game.clone());
                 notify_game_update(&db, &player_game.game_id);
-                db.player_game_table.insert(player_id.clone(), player_game);
             }
         }
     }
