@@ -77,6 +77,44 @@ pub mod handlers
         return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
     }
 
+    pub async fn edit_game(eg_req : payload::request::EditGame, db : database::DB, maps_folder : String)
+    -> Result<impl warp::Reply, warp::Rejection>
+    {
+        let player_id = eg_req.player_id;
+        if let Some(player_game) = db.player_game_table.get(&player_id)
+        {
+            if let PlayerType::Host = player_game.player_type 
+            {
+                let yml = read_map_yaml(&eg_req.map, &maps_folder);
+                let version = yml["version"].as_str().unwrap().to_string();
+                
+                if let Some(mut game) = db.game_table.get(&eg_req.game_id)
+                {
+                    game.name = eg_req.name; game.map = eg_req.map; game.mode = eg_req.mode; game.map_version = version;
+                    println!("Game key is {}", game.key);
+                    db.game_table.insert(game.id.clone(), game.clone());
+
+                    let game_sem = entity::GameSem::new(game.id);
+                    db.game_sem_table.insert(game.id, game_sem);
+                    
+                    get_game_players(&db, &eg_req.game_id).into_iter().for_each(|x| set_player_ready(&db, &x.id, false));
+                    notify_game_update(&db, &eg_req.game_id);
+
+                    // Send response
+                    let response = get_game_details(&db, &game.id).unwrap();
+                    return Ok(warp::reply::with_status(warp::reply::json(&response), warp::http::StatusCode::OK));
+                }
+                let err = format!("Could not find game with id {}", eg_req.game_id.to_string());
+                return Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+            }
+            let err = format!("Player was not host");
+            return Ok(warp::reply::with_status(reply::json(&err), StatusCode::FORBIDDEN));
+        }
+        let err = format!("Could not find player with id {}", eg_req.game_id.to_string());
+        Ok(warp::reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
+    }
+
+
     pub async fn join_game(join_game_req : payload::request::JoinGame, db : database::DB)
         -> Result<impl warp::Reply, Infallible>
     {
@@ -171,7 +209,7 @@ pub mod handlers
             
             if !update_game_req.forced
             {
-                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(5)).unwrap();
+                game_sem.sem.wait_timeout(game_sem.mutex.lock().unwrap(), Duration::from_secs(15)).unwrap();
             }
 
             if let Ok(response) = get_game_details(&db, &game.id)
@@ -812,6 +850,7 @@ pub mod filters
         login(db.clone())
         .or(list_games(db.clone()))
         .or(create_game(db.clone(), maps_folder.clone()))
+        .or(edit_game(db.clone(), maps_folder.clone()))
         .or(join_game(db.clone()))
         .or(leave_game(db.clone()))
         .or(toggle_ready(db.clone()))
@@ -873,6 +912,21 @@ pub mod filters
         .and(filter.clone())
         .and(param3.clone())
         .and_then(handlers::create_game)
+    }
+
+    pub fn edit_game(db : database::DB, maps_folder : String) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
+    {
+        let filter = warp::any().map(move || db.clone());
+        let param3 = warp::any().map(move || maps_folder.clone());
+
+        warp::post()
+        .and(warp::path("edit_game"))
+        .and(warp::path::end())
+        .and(warp::body::content_length_limit(1024 * 16))
+        .and(warp::body::json::<request::EditGame>())
+        .and(filter.clone())
+        .and(param3.clone())
+        .and_then(handlers::edit_game)
     }
 
     pub fn leave_game(db : database::DB) -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone

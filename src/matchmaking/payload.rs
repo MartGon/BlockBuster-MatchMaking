@@ -35,6 +35,16 @@ pub mod request
     }
 
     #[derive(Debug, Deserialize, Serialize, Clone)]
+    pub struct EditGame
+    {
+        pub player_id : uuid::Uuid,
+        pub game_id : uuid::Uuid,
+        pub name : String,
+        pub map : String,
+        pub mode : String, 
+    }
+
+    #[derive(Debug, Deserialize, Serialize, Clone)]
     pub struct LeaveGame
     {
         pub player_id : uuid::Uuid,
