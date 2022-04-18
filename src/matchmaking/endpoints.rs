@@ -93,9 +93,6 @@ pub mod handlers
                     game.name = eg_req.name; game.map = eg_req.map; game.mode = eg_req.mode; game.map_version = version;
                     println!("Game key is {}", game.key);
                     db.game_table.insert(game.id.clone(), game.clone());
-
-                    let game_sem = entity::GameSem::new(game.id);
-                    db.game_sem_table.insert(game.id, game_sem);
                     
                     get_game_players(&db, &eg_req.game_id).into_iter().for_each(|x| set_player_ready(&db, &x.id, false));
                     notify_game_update(&db, &eg_req.game_id);
