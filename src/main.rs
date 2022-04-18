@@ -17,6 +17,10 @@ struct Args{
     #[clap(short, long)]
     address: String,
 
+    // Public address
+    #[clap(short, long)]
+    game_address: String,
+
     // Port to listen on
     #[clap(short, long)]
     port: u16,
@@ -45,13 +49,15 @@ async fn main() {
     let maps_folder = Path::new(&args.maps_folder);
     if !maps_folder.exists() && !maps_folder.is_dir()
     {
-        println!("Maps folder is invalid: {}", args.server_path);
+        println!("Maps folder is invalid: {}", args.maps_folder);
         std::process::exit(-1);
     }
     println!("Maps folder is: {}", args.maps_folder);
 
     let address = format!("{}:{}", args.address, args.port);
     let address = ToSocketAddrs::to_socket_addrs(&address).expect("Couldn't parse socket address").next().unwrap();
+    let game_address = format!("{}:{}", args.game_address, args.port);
+    ToSocketAddrs::to_socket_addrs(&game_address).expect("Couldn't parse game address").next().unwrap();
 
     let db = database::DB::new();
 
@@ -60,7 +66,7 @@ async fn main() {
         update(&copy);
     });
     
-    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder);
+    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder, args.game_address);
     warp::serve(routes).run((address.ip(), args.port)).await;
 }
 

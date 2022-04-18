@@ -219,7 +219,7 @@ pub mod handlers
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
-    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String, maps_folder : String) -> Result<impl warp::Reply, Infallible>
+    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String, maps_folder : String, public_address : String) -> Result<impl warp::Reply, Infallible>
     {
         let game_id = start_game_req.game_id;
 
@@ -232,11 +232,11 @@ pub mod handlers
                 {
                     if let PlayerType::Host = player_game.player_type 
                     {
-                        if let Ok((address, port)) = launch_game(&db, game_id, exec_path, maps_folder)
+                        if let Ok((_address, port)) = launch_game(&db, game_id, exec_path, maps_folder)
                         {
                             game.port = Some(port);
     
-                            game.address = Some(String::from(address));
+                            game.address = Some(public_address);
                             game.state = GameState::InGame;
 
                             db.game_table.insert(game.id, game);
@@ -631,8 +631,7 @@ pub mod handlers
         {   
             let game_info = get_game_info(db, &game_id).unwrap();
             
-            // TODO: Here, we should select a domain/public ip
-            let address = "localhost";
+            let listen_address = "0.0.0.0";
             let port = get_free_port(db);
             
             let program = exec_path;
@@ -642,7 +641,7 @@ pub mod handlers
             let gamemode = game_info.mode;
 
             let res = Command::new(program)
-                .arg("-a").arg(address)
+                .arg("-a").arg(listen_address)
                 .arg("-p").arg(port.to_string())
                 .arg("-m").arg(map_path)
                 .arg("-mp").arg(game.max_players.to_string())
@@ -660,7 +659,7 @@ pub mod handlers
 
             set_game_state(&db, &game_id, GameState::InGame);
 
-            return Ok((address, port));
+            return Ok((&listen_address, port));
         }
 
         return Err(LaunchServerError::GameNotFound);
@@ -845,7 +844,7 @@ pub mod filters
     use crate::matchmaking::payload::request;
     use crate::matchmaking::database;
 
-    pub fn get_routes(db : database::DB, exec_path : String, maps_folder : String) 
+    pub fn get_routes(db : database::DB, exec_path : String, maps_folder : String, public_address : String) 
         -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         login(db.clone())
@@ -857,7 +856,7 @@ pub mod filters
         .or(toggle_ready(db.clone()))
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
-        .or(start_game(db.clone(), exec_path, maps_folder.clone()))
+        .or(start_game(db.clone(), exec_path, maps_folder.clone(), public_address.clone()))
         .or(get_available_maps(maps_folder.clone()))
         .or(download_map(maps_folder.clone()))
         .or(get_map_picture(maps_folder.clone()))
@@ -983,12 +982,13 @@ pub mod filters
         .and_then(handlers::update_game)
     }
 
-    pub fn start_game(db : database::DB, exec_path : String, maps_folder : String)
+    pub fn start_game(db : database::DB, exec_path : String, maps_folder : String, public_address : String)
     -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || db.clone());
         let param2 = warp::any().map(move || exec_path.clone());
         let param3 = warp::any().map(move || maps_folder.clone());
+        let param4 = warp::any().map(move || public_address.clone());
 
         warp::post()
         .and(warp::path("start_game"))
@@ -998,6 +998,7 @@ pub mod filters
         .and(filter.clone())
         .and(param2.clone())
         .and(param3.clone())
+        .and(param4.clone())
         .and_then(handlers::start_game)
     }
 
