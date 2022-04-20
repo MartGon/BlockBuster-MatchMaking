@@ -25,6 +25,7 @@ In order to launch the Match Making Server, you'll have to provide the following
 - Address (-a, --address): The ip address to listen for request. This is usually 0.0.0.0, in case you'd like the server to listen in all the available interfaces
 - Port (-p, --port): Port number to listen on.
 - Game Address (-g, --game-address): **IMPORTANT** This is the address that will be provided to clients when connecting to a game server. This should be your routers public ip address if running behind NAT and using port forwarding.
+- Tick Rate (-t, --tick-rate): This is the time in secods between each game server ticks. Smaller numbers increase simulation precision, but need more computing power. Recommended range is [0.015, 0.050].
 - Server Path (-s, --server-path): Path to server executable file. When a game is started, this file will be run. This should be the file you compiled earlier.
 - Maps Folder (-m, --maps-folder): Path to the folder which will hold the maps files that players may upload.
 
