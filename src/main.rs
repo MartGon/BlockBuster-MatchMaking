@@ -31,7 +31,11 @@ struct Args{
 
     // Maps folder
     #[clap(short, long, default_value = "./maps")]
-    maps_folder : String
+    maps_folder : String,
+
+    // Serve tick rate
+    #[clap(short, long, default_value = "0.020")]
+    tick_rate : f32,
 }
 
 
@@ -66,7 +70,7 @@ async fn main() {
         update(&copy);
     });
     
-    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder, args.game_address);
+    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder, args.game_address, args.tick_rate);
     warp::serve(routes).run((address.ip(), args.port)).await;
 }
 

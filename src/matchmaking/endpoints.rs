@@ -219,7 +219,8 @@ pub mod handlers
         Ok(reply::with_status(reply::json(&err), StatusCode::NOT_FOUND))
     }
 
-    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String, maps_folder : String, public_address : String) -> Result<impl warp::Reply, Infallible>
+    pub async fn start_game(start_game_req : payload::request::StartGame, db : database::DB, exec_path : String, maps_folder : String, public_address : String, server_tickrate : f32) 
+        -> Result<impl warp::Reply, Infallible>
     {
         let game_id = start_game_req.game_id;
 
@@ -232,7 +233,7 @@ pub mod handlers
                 {
                     if let PlayerType::Host = player_game.player_type 
                     {
-                        if let Ok((_address, port)) = launch_game(&db, game_id, exec_path, maps_folder)
+                        if let Ok((_address, port)) = launch_game(&db, game_id, exec_path, maps_folder, server_tickrate)
                         {
                             game.port = Some(port);
     
@@ -625,7 +626,8 @@ pub mod handlers
         }
     }
 
-    fn launch_game(db : &database::DB, game_id : uuid::Uuid, exec_path : String, maps_folder : String) -> Result<(& str, u16), LaunchServerError>
+    fn launch_game(db : &database::DB, game_id : uuid::Uuid, exec_path : String, maps_folder : String, server_tickrate : f32) 
+        -> Result<(& str, u16), LaunchServerError>
     {
         if let Some(game) = db.game_table.get(&game_id)
         {   
@@ -647,6 +649,7 @@ pub mod handlers
                 .arg("-mp").arg(game.max_players.to_string())
                 .arg("-sp").arg(game_info.players.to_string())
                 .arg("-gm").arg(gamemode)
+                .arg("-t").arg(server_tickrate.to_string())
                 
                 .arg("-mmid").arg(game_id.to_string())
                 .arg("-mmk").arg(game.key.to_string())
@@ -844,7 +847,7 @@ pub mod filters
     use crate::matchmaking::payload::request;
     use crate::matchmaking::database;
 
-    pub fn get_routes(db : database::DB, exec_path : String, maps_folder : String, public_address : String) 
+    pub fn get_routes(db : database::DB, exec_path : String, maps_folder : String, public_address : String, server_tickrate : f32) 
         -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         login(db.clone())
@@ -856,7 +859,7 @@ pub mod filters
         .or(toggle_ready(db.clone()))
         .or(send_chat_msg(db.clone()))
         .or(update_game(db.clone()))
-        .or(start_game(db.clone(), exec_path, maps_folder.clone(), public_address.clone()))
+        .or(start_game(db.clone(), exec_path, maps_folder.clone(), public_address.clone(), server_tickrate))
         .or(get_available_maps(maps_folder.clone()))
         .or(download_map(maps_folder.clone()))
         .or(get_map_picture(maps_folder.clone()))
@@ -982,13 +985,14 @@ pub mod filters
         .and_then(handlers::update_game)
     }
 
-    pub fn start_game(db : database::DB, exec_path : String, maps_folder : String, public_address : String)
+    pub fn start_game(db : database::DB, exec_path : String, maps_folder : String, public_address : String, server_tickrate : f32)
     -> impl Filter<Extract = impl warp::Reply, Error = warp::Rejection> + Clone
     {
         let filter = warp::any().map(move || db.clone());
         let param2 = warp::any().map(move || exec_path.clone());
         let param3 = warp::any().map(move || maps_folder.clone());
         let param4 = warp::any().map(move || public_address.clone());
+        let tickrate = warp::any().map(move || server_tickrate);
 
         warp::post()
         .and(warp::path("start_game"))
@@ -999,6 +1003,7 @@ pub mod filters
         .and(param2.clone())
         .and(param3.clone())
         .and(param4.clone())
+        .and(tickrate.clone())
         .and_then(handlers::start_game)
     }
 
