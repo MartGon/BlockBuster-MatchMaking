@@ -610,7 +610,8 @@ pub mod handlers
         {
             let game_id = &entry.game_id;
             let game_players = get_game_players(&db, game_id);
-            if game_players.is_empty()
+            let game = db.game_table.get(&game_id).unwrap();
+            if game_players.is_empty() && matches!(game.state, GameState::InLobby)
             {
                 db.game_table.remove(game_id);
             }
