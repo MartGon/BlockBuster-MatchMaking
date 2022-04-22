@@ -615,14 +615,15 @@ pub mod handlers
             if game_players.is_empty()
             {
                 db.game_table.remove(game_id);
+                println!("Removing game {}. There were no players left", game_id);
             }
-            else
+            else if matches!(entry.player_type, PlayerType::Host)
             {
                 let player = game_players.first().unwrap();
                 let mut new_host = db.player_game_table.get(&player.id).unwrap();
                 new_host.player_type = PlayerType::Host;
                 db.player_game_table.insert(player.id, new_host);
-                println!("Player {} is the new host", player.name);
+                println!("Player {} is the new host of game {}", player.name, game_id);
             }
 
             notify_game_update(&db, game_id);
