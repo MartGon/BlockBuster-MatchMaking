@@ -70,7 +70,7 @@ async fn main() {
         update(&copy);
     });
     
-    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder, args.game_address, args.tick_rate);
+    let routes = endpoints::filters::get_routes(db, args.server_path, args.maps_folder, args.game_address, args.tick_rate, args.port);
     warp::serve(routes).run((address.ip(), args.port)).await;
 }
 
