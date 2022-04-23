@@ -83,7 +83,7 @@ pub mod handlers
         let player_id = eg_req.player_id;
         if let Some(player_game) = db.player_game_table.get(&player_id)
         {
-            if let PlayerType::Host = player_game.player_type 
+            if matches!(player_game.player_type, PlayerType::Host)
             {
                 let yml = read_map_yaml(&eg_req.map, &maps_folder);
                 let version = yml["version"].as_str().unwrap().to_string();
@@ -91,7 +91,7 @@ pub mod handlers
                 if let Some(mut game) = db.game_table.get(&eg_req.game_id)
                 {
                     game.name = eg_req.name; game.map = eg_req.map; game.mode = eg_req.mode; game.map_version = version;
-                    println!("Game key is {}", game.key);
+                    //println!("Game key is {}", game.key);
                     db.game_table.insert(game.id.clone(), game.clone());
                     
                     get_game_players(&db, &eg_req.game_id).into_iter().for_each(|x| set_player_ready(&db, &x.id, false));
@@ -232,7 +232,7 @@ pub mod handlers
                 let player_id = start_game_req.player_id;
                 if let Some(player_game) = db.player_game_table.get(&player_id)
                 {
-                    if let PlayerType::Host = player_game.player_type 
+                    if matches!(player_game.player_type, PlayerType::Host)
                     {
                         if let Ok((_address, port)) = launch_game(&db, game_id, exec_path, maps_folder, server_tickrate, mm_port)
                         {
@@ -247,6 +247,8 @@ pub mod handlers
 
                             return Ok(reply::with_status(reply::json(&"".to_string()), StatusCode::OK));
                         }
+                        let err = format!("Could not launch game");
+                        return Ok(reply::with_status(reply::json(&err), StatusCode::BAD_REQUEST));
                     }
                     let err = format!("Player was not host");
                     return Ok(reply::with_status(reply::json(&err), StatusCode::BAD_REQUEST));
@@ -483,7 +485,7 @@ pub mod handlers
         let map_folder = get_map_folder(map, maps_folder);
         let map_folder = Path::new(&map_folder);
         let yml_path = map_folder.join(map.clone() + ".yml");
-        println!("YML path is {}", yml_path.to_str().unwrap());
+        //println!("YML path is {}", yml_path.to_str().unwrap());
 
         let mut yml_file = std::fs::File::open(&yml_path).unwrap();
         let mut data_str = String::new();
@@ -614,13 +616,15 @@ pub mod handlers
             if game_players.is_empty()
             {
                 db.game_table.remove(game_id);
+                println!("Removing game {}. There were no players left", game_id);
             }
-            else
+            else if matches!(entry.player_type, PlayerType::Host)
             {
                 let player = game_players.first().unwrap();
                 let mut new_host = db.player_game_table.get(&player.id).unwrap();
                 new_host.player_type = PlayerType::Host;
                 db.player_game_table.insert(player.id, new_host);
+                println!("Player {} is the new host of game {}", player.name, game_id);
             }
 
             notify_game_update(&db, game_id);
@@ -657,8 +661,9 @@ pub mod handlers
                 .arg("-mmk").arg(game.key.to_string())
                 .spawn();
 
-            if let Err(_error) = res
+            if let Err(error) = res
             {
+                println!("Error when launching server {}", error);
                 return Err(LaunchServerError::CouldNotlaunch);
             }
 
@@ -675,6 +680,7 @@ pub mod handlers
         if let Some(mut game) = db.game_table.get(&game_id)
         {
             game.state = state;
+            game.last_update = std::time::SystemTime::now();
             db.game_table.insert(game.id, game);
         }
     }

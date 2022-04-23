@@ -90,7 +90,7 @@ fn update(db : &database::DB)
             if elapsed > MAX_DURATION && matches!(game.state, GameState::InLobby)
             {
                 db.game_table.remove(&game.id);
-                println!("Removing game with id {}", game.id);
+                println!("Removing AFK game with id {}", game.id);
             }
         });
 
